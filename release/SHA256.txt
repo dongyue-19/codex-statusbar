@@ -1,0 +1,19 @@
+CodexStatusbar 1.0.0-rc1 — SHA-256
+=================================
+
+  B5ADA92900B202BCD4956294CDAB97B61DE55EFD6B16FDF8AB66208348A9BCA2  CodexStatusbar.exe
+
+Size        : 64,281,008 bytes (61.3 MB)
+Build time  : 2026-10-01 19:46:19 (+08:00)
+Product     : CodexStatusbar
+ProductVersion : 1.0.0-rc1
+FileVersion : 1.0.0.0
+Runtime     : self-contained win-x64 single file (no .NET runtime required)
+
+Verify on Windows:
+
+  Get-FileHash .\CodexStatusbar.exe -Algorithm SHA256
+
+or
+
+  certutil -hashfile CodexStatusbar.exe SHA256

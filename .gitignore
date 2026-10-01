@@ -1,0 +1,45 @@
+# ---------------------------------------------------------------- build output
+dist/
+bin/
+obj/
+src/**/bin/
+src/**/obj/
+
+# ------------------------------------------------------------------- runtime
+# the settings file lives in %LOCALAPPDATA%\CodexStatusbar, never in the repo
+%LOCALAPPDATA%/
+
+# --------------------------------------------------- release binary is an asset
+# The 61 MB self-contained exe is attached to the GitHub Release, not committed:
+# committing it would add ~70 MB to the repository and to every future rebuild.
+# release\start-monitor.bat, README.md, SHA256.txt and VERSION stay in the tree.
+release/*.exe
+
+# ------------------------------------------------------------------- toolchain
+__pycache__/
+*.pyc
+
+# ------------------------------------------- evidence withheld from this repo
+# Everything the docs cite by measurement is in the tree: the probe JSON, the
+# synthetic-backdrop renders and the 8x type crops. What is NOT published is
+# anything captured from a live session -- those files carry real conversation
+# titles, real message text and local file paths belonging to the author's
+# machine, and a screenshot cannot be un-published. Each evidence README lists
+# what was withheld; regenerate it locally with the tools\ scripts.
+docs/evidence/*.jsonl
+docs/evidence/**/debug-live-position.log
+docs/evidence/round2-ui/live-over-real-codex.png
+docs/evidence/round2-ui/onscreen-over-codex.png
+docs/evidence/round2-ui/onscreen-over-codex-moved.png
+docs/evidence/round3-composer/live-docked-full-window.png
+docs/evidence/round3-composer/live-narrow-900px-level3.png
+docs/evidence/round3-composer/rc1-live-docked-full-window.png
+
+# ------------------------------- generated from the installed Codex, not ours
+# docs\app-server-schema\ is 3.5 MB of protocol definition extracted from OpenAI's
+# own binary. Redistributing it is a licensing question this project does not need
+# to take on; README section 2 gives the one-line command to regenerate it.
+docs/app-server-schema/
+
+# ---------------------------------------- reference clones fetched in research
+../_repos/

@@ -1,0 +1,24 @@
+{
+  "settingsVersion": 3,
+  "transparentBackground": true,
+  "anchor": "TopCenter",
+  "offsetX": 0,
+  "offsetY": 10,
+  "positionMode": "ComposerContextLeft",
+  "fixedScreenX": 0,
+  "fixedScreenY": 0,
+  "theme": "Auto",
+  "contextGapDip": 10,
+  "textShadow": false,
+  "anchorMode": 3,
+  "visibleFields": 1663,
+  "collapsedPrimaryField": 1024,
+  "collapsedSecondaryField": 1,
+  "manualPlacementEnabled": true,
+  "mainAttachment": {
+    "referencePoint": 1,
+    "offsetXDip": 0,
+    "offsetYDip": 10
+  },
+  "overlayScalePercent": 100
+}

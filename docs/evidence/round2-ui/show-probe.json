@@ -1,0 +1,68 @@
+[
+  {
+    "Theme": "dark",
+    "Backdrop": "dark",
+    "File": "onscreen-dark-over-dark.png",
+    "stats": {
+      "PixelCount": 25245,
+      "ChangedVsBackdrop": 3815,
+      "OpaqueBackdropLeaks": 0,
+      "Note": "uniform backdrop"
+    }
+  },
+  {
+    "Theme": "dark",
+    "Backdrop": "light",
+    "File": "onscreen-dark-over-light.png",
+    "stats": {
+      "PixelCount": 25245,
+      "ChangedVsBackdrop": 3658,
+      "OpaqueBackdropLeaks": 0,
+      "Note": "uniform backdrop"
+    }
+  },
+  {
+    "Theme": "dark",
+    "Backdrop": "busy",
+    "File": "onscreen-dark-over-busy.png",
+    "stats": {
+      "PixelCount": 25245,
+      "ChangedVsBackdrop": 0,
+      "OpaqueBackdropLeaks": 0,
+      "Note": "busy backdrop: change count not comparable"
+    }
+  },
+  {
+    "Theme": "light",
+    "Backdrop": "dark",
+    "File": "onscreen-light-over-dark.png",
+    "stats": {
+      "PixelCount": 25245,
+      "ChangedVsBackdrop": 3861,
+      "OpaqueBackdropLeaks": 0,
+      "Note": "uniform backdrop"
+    }
+  },
+  {
+    "Theme": "light",
+    "Backdrop": "light",
+    "File": "onscreen-light-over-light.png",
+    "stats": {
+      "PixelCount": 25245,
+      "ChangedVsBackdrop": 3712,
+      "OpaqueBackdropLeaks": 0,
+      "Note": "uniform backdrop"
+    }
+  },
+  {
+    "Theme": "light",
+    "Backdrop": "busy",
+    "File": "onscreen-light-over-busy.png",
+    "stats": {
+      "PixelCount": 25245,
+      "ChangedVsBackdrop": 0,
+      "OpaqueBackdropLeaks": 0,
+      "Note": "busy backdrop: change count not comparable"
+    }
+  }
+]

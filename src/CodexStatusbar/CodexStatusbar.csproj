@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>CodexStatusbar</AssemblyName>
+    <RootNamespace>CodexStatusbar</RootNamespace>
+    <Version>1.0.0-rc1</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>CodexStatusbar</Product>
+    <Copyright>MIT licensed</Copyright>
+    <Authors>soleillevant0125; CodexStatusbar contributors</Authors>
+    <Description>A read-only 3-metric Windows status strip (TPS / total tokens / cache hit) for Codex Desktop.</Description>
+    <RepositoryUrl>https://github.com/dongyue-19/codex-statusbar</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
+    <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract Condition="'$(RuntimeIdentifier)' != ''">true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      UI Automation, used only to *read* the official composer's geometry (the Context-usage indicator
+      and the toolbar row). That is what lets the strip dock to the real control instead of to a
+      remembered coordinate. The managed UIA assemblies ship in the "WPF" profile of the Windows
+      Desktop framework, so the framework reference is what makes them resolvable; nothing WPF is ever
+      instantiated.
+    -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+  </ItemGroup>
+
+  <!--
+    Referencing the WPF profile drags all of it into a self-contained publish: PresentationFramework
+    alone is 15 MB, and the total cost measured 20 MB in the single file (52 MB -> 72 MB).
+
+    UIAutomationClient is an accessibility *client* library. Its own reference graph is
+    UIAutomationTypes + UIAutomationProvider + WindowsBase + PresentationCore, and it never touches the
+    WPF application layer — XAML parsing, controls, themes, printing, ribbons. Those are removed from
+    the publish below.
+
+    The guard matters more than the list: if a future SDK renames or drops one of these, the removal
+    stops matching and the build fails rather than quietly shipping 20 MB more.
+  -->
+  <PropertyGroup>
+    <_PrunedWpfNames>PresentationUI;ReachFramework;System.Printing;System.Windows.Controls.Ribbon</_PrunedWpfNames>
+  </PropertyGroup>
+
+  <Target Name="PruneUnusedWpfFromPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_WpfItemToPrune
+        Include="@(ResolvedFileToPublish)"
+        Condition="$([System.String]::Copy('%(Filename)').StartsWith('PresentationFramework'))
+                   Or $([System.String]::Copy(';$(_PrunedWpfNames);').Contains(';%(Filename);'))" />
+      <ResolvedFileToPublish Remove="@(_WpfItemToPrune)" />
+    </ItemGroup>
+    <Error
+      Condition="'@(_WpfItemToPrune)' == ''"
+      Text="PruneUnusedWpfFromPublish matched nothing. The WPF profile's file names changed, so the publish is silently carrying ~20 MB of unused assemblies again. Re-check the list against 'dotnet publish -p:PublishSingleFile=false' output." />
+  </Target>
+</Project>

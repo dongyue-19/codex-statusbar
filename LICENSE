@@ -1,0 +1,29 @@
+MIT License
+
+Copyright (c) 2026 CodexStatusbar contributors
+
+This project is a modified redistribution of codex-token-overlay
+(https://github.com/soleillevant0125/codex-token-overlay),
+Copyright (c) 2026 soleillevant0125, MIT licensed — see LICENSE-codex-token-overlay.
+
+Portions of the design are derived from codex-monitor-hud
+(https://github.com/LH-03/codex-monitor-hud) and codex-model-benchmarks
+(https://github.com/zakmandhro/codex-model-benchmarks), both MIT licensed.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

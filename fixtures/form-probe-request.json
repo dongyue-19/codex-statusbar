@@ -1,0 +1,51 @@
+{
+  "cases": [
+    {
+      "name": "transparent-144dpi",
+      "collapsedLayout": {
+        "state": 0,
+        "collapsedDisplay": 0,
+        "expansionDirection": 0,
+        "dpi": 144,
+        "windowBounds": { "x": 100, "y": 100, "width": 495, "height": 51 },
+        "capsuleBounds": { "x": 0, "y": 0, "width": 495, "height": 51 },
+        "panelBounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+        "expandedRowHeight": 0,
+        "scalePercent": 100
+      },
+      "collapsed60Layout": {
+        "state": 0,
+        "collapsedDisplay": 0,
+        "expansionDirection": 0,
+        "dpi": 144,
+        "windowBounds": { "x": 100, "y": 100, "width": 297, "height": 31 },
+        "capsuleBounds": { "x": 0, "y": 0, "width": 297, "height": 31 },
+        "panelBounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+        "expandedRowHeight": 0,
+        "scalePercent": 60
+      },
+      "collapsed130Layout": {
+        "state": 0,
+        "collapsedDisplay": 0,
+        "expansionDirection": 0,
+        "dpi": 144,
+        "windowBounds": { "x": 100, "y": 100, "width": 644, "height": 66 },
+        "capsuleBounds": { "x": 0, "y": 0, "width": 644, "height": 66 },
+        "panelBounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+        "expandedRowHeight": 0,
+        "scalePercent": 130
+      },
+      "expandedLayout": {
+        "state": 1,
+        "collapsedDisplay": 0,
+        "expansionDirection": 0,
+        "dpi": 144,
+        "windowBounds": { "x": 100, "y": 100, "width": 495, "height": 330 },
+        "capsuleBounds": { "x": 0, "y": 0, "width": 495, "height": 51 },
+        "panelBounds": { "x": 0, "y": 60, "width": 430, "height": 270 },
+        "expandedRowHeight": 30,
+        "scalePercent": 100
+      }
+    }
+  ]
+}

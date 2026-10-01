@@ -1,0 +1,14 @@
+# Normalise text to LF in the repository, but keep CRLF in the working tree for
+# anything Windows actually executes, so a clone behaves the same as the author's
+# checkout. PNGs and the fixture JSONL are left alone.
+* text=auto eol=lf
+
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+*.png  binary
+*.jsonl binary
+
+# Keep diffs readable for the generated probe outputs.
+*.json linguist-generated=false

@@ -1,0 +1,377 @@
+{
+  "Cases": [
+    {
+      "Name": "transparent-144dpi",
+      "WsExToolWindowPresent": true,
+      "WsExNoActivatePresent": true,
+      "WsExTransparentPresent": false,
+      "WsExLayeredPresent": true,
+      "CsDropShadowPresent": false,
+      "MouseActivateResult": 3,
+      "CapsuleCenterHitTest": 1,
+      "PanelCenterHitTest": 1,
+      "TopLeftHitTest": 1,
+      "CollapsedBounds": {
+        "X": 100,
+        "Y": 100,
+        "Width": 495,
+        "Height": 51
+      },
+      "ExpandedBounds": {
+        "X": 100,
+        "Y": 100,
+        "Width": 495,
+        "Height": 330
+      },
+      "ExpandedSetBoundsCoreDelta": 1,
+      "ExpandedRegionMatchesUnion": true,
+      "InsideCapsuleWindowFromPointIsSelf": false,
+      "OutsideRegionWindowFromPointIsSelf": false,
+      "CapsuleHitWindowClass": "Chrome_RenderWidgetHostHWND",
+      "OutsideHitWindowClass": "Chrome_RenderWidgetHostHWND",
+      "NormalCapsuleClickCount": 1,
+      "NormalCommandIntercepted": false,
+      "NormalRenderDecorations": {
+        "ShowBorder": false,
+        "ShowDragHint": false,
+        "ShowResizeHandle": false,
+        "DragHintText": "",
+        "DragHintBounds": {
+          "X": 0,
+          "Y": 0,
+          "Width": 0,
+          "Height": 0
+        },
+        "DragHintFontPoints": 0
+      },
+      "BeginEditRejectsExpanded": true,
+      "EditWsExToolWindowPresent": true,
+      "EditWsExNoActivatePresent": false,
+      "EditMouseActivateResult": 1,
+      "EditIsCollapsed": true,
+      "EditCapsuleClickCount": 0,
+      "EditResizeHandle60": {
+        "X": 286,
+        "Y": 20,
+        "Width": 11,
+        "Height": 11
+      },
+      "EditResizeHandle100": {
+        "X": 477,
+        "Y": 33,
+        "Width": 18,
+        "Height": 18
+      },
+      "EditResizeHandle130": {
+        "X": 621,
+        "Y": 43,
+        "Width": 23,
+        "Height": 23
+      },
+      "EditRenderDecorations60": {
+        "ShowBorder": true,
+        "ShowDragHint": true,
+        "ShowResizeHandle": true,
+        "DragHintText": "\u62D6\u52A8\u8C03\u6574\u4F4D\u7F6E",
+        "DragHintBounds": {
+          "X": 9,
+          "Y": 0,
+          "Width": 261,
+          "Height": 31
+        },
+        "DragHintFontPoints": 6
+      },
+      "EditRenderDecorations100": {
+        "ShowBorder": true,
+        "ShowDragHint": true,
+        "ShowResizeHandle": true,
+        "DragHintText": "\u62D6\u52A8\u8C03\u6574\u4F4D\u7F6E",
+        "DragHintBounds": {
+          "X": 15,
+          "Y": 0,
+          "Width": 435,
+          "Height": 51
+        },
+        "DragHintFontPoints": 10
+      },
+      "EditRenderDecorations130": {
+        "ShowBorder": true,
+        "ShowDragHint": true,
+        "ShowResizeHandle": true,
+        "DragHintText": "\u62D6\u52A8\u8C03\u6574\u4F4D\u7F6E",
+        "DragHintBounds": {
+          "X": 20,
+          "Y": 0,
+          "Width": 565,
+          "Height": 66
+        },
+        "DragHintFontPoints": 13
+      },
+      "MovePreview": {
+        "Kind": 0,
+        "CursorScreen": {
+          "IsEmpty": false,
+          "X": 377,
+          "Y": 145
+        },
+        "FixedTopLeft": {
+          "IsEmpty": false,
+          "X": 100,
+          "Y": 100
+        },
+        "ScalePercent": 100
+      },
+      "MovePreviewBounds": {
+        "X": 130,
+        "Y": 120,
+        "Width": 495,
+        "Height": 51
+      },
+      "MovePreservedSize": true,
+      "MinimumResizePreview": {
+        "Kind": 1,
+        "CursorScreen": {
+          "IsEmpty": false,
+          "X": -1414,
+          "Y": -1858
+        },
+        "FixedTopLeft": {
+          "IsEmpty": false,
+          "X": 100,
+          "Y": 100
+        },
+        "ScalePercent": 60
+      },
+      "MaximumResizePreview": {
+        "Kind": 1,
+        "CursorScreen": {
+          "IsEmpty": false,
+          "X": 2586,
+          "Y": 2142
+        },
+        "FixedTopLeft": {
+          "IsEmpty": false,
+          "X": 100,
+          "Y": 100
+        },
+        "ScalePercent": 130
+      },
+      "LostMoveCapture": {
+        "ExpectedKind": 0,
+        "Preview": {
+          "Kind": 0,
+          "CursorScreen": {
+            "IsEmpty": false,
+            "X": 378,
+            "Y": 144
+          },
+          "FixedTopLeft": {
+            "IsEmpty": false,
+            "X": 100,
+            "Y": 100
+          },
+          "ScalePercent": 100
+        },
+        "Completed": {
+          "Kind": 0,
+          "CursorScreen": {
+            "IsEmpty": false,
+            "X": 378,
+            "Y": 144
+          },
+          "FixedTopLeft": {
+            "IsEmpty": false,
+            "X": 100,
+            "Y": 100
+          },
+          "ScalePercent": 100
+        },
+        "CompletionCount": 1,
+        "ActiveBeforeInterruption": true,
+        "ActiveAfterInterruption": false,
+        "ActiveAfterRepeatedSignals": false,
+        "CaptureAfterInterruption": false,
+        "CancelRequestCount": 0
+      },
+      "LostResizeCapture": {
+        "ExpectedKind": 1,
+        "Preview": {
+          "Kind": 1,
+          "CursorScreen": {
+            "IsEmpty": false,
+            "X": 617,
+            "Y": 161
+          },
+          "FixedTopLeft": {
+            "IsEmpty": false,
+            "X": 100,
+            "Y": 100
+          },
+          "ScalePercent": 130
+        },
+        "Completed": {
+          "Kind": 1,
+          "CursorScreen": {
+            "IsEmpty": false,
+            "X": 617,
+            "Y": 161
+          },
+          "FixedTopLeft": {
+            "IsEmpty": false,
+            "X": 100,
+            "Y": 100
+          },
+          "ScalePercent": 130
+        },
+        "CompletionCount": 1,
+        "ActiveBeforeInterruption": true,
+        "ActiveAfterInterruption": false,
+        "ActiveAfterRepeatedSignals": false,
+        "CaptureAfterInterruption": false,
+        "CancelRequestCount": 0
+      },
+      "CancelCapture": {
+        "ExpectedKind": 0,
+        "Preview": {
+          "Kind": 0,
+          "CursorScreen": {
+            "IsEmpty": false,
+            "X": 364,
+            "Y": 136
+          },
+          "FixedTopLeft": {
+            "IsEmpty": false,
+            "X": 100,
+            "Y": 100
+          },
+          "ScalePercent": 100
+        },
+        "Completed": null,
+        "CompletionCount": 0,
+        "ActiveBeforeInterruption": true,
+        "ActiveAfterInterruption": false,
+        "ActiveAfterRepeatedSignals": false,
+        "CaptureAfterInterruption": false,
+        "CancelRequestCount": 1
+      },
+      "DisposeCapture": {
+        "ExpectedKind": 1,
+        "Preview": {
+          "Kind": 1,
+          "CursorScreen": {
+            "IsEmpty": false,
+            "X": 599,
+            "Y": 155
+          },
+          "FixedTopLeft": {
+            "IsEmpty": false,
+            "X": 100,
+            "Y": 100
+          },
+          "ScalePercent": 125
+        },
+        "Completed": null,
+        "CompletionCount": 0,
+        "ActiveBeforeInterruption": true,
+        "ActiveAfterInterruption": false,
+        "ActiveAfterRepeatedSignals": false,
+        "CaptureAfterInterruption": false,
+        "CancelRequestCount": 0
+      },
+      "EditGestureCompletionCount": 3,
+      "SaveRequestCount": 1,
+      "CancelRequestCount": 1,
+      "RestoredWsExNoActivatePresent": true,
+      "RestoredMouseActivateResult": 3,
+      "Metrics60": {
+        "LabelFontPoints": 6,
+        "CompactValueFontPoints": 7.2,
+        "PanelHeaderFontPoints": 7.8,
+        "HighlightedValueFontPoints": 9,
+        "CapsuleRadius": 6,
+        "PanelRadius": 8,
+        "HorizontalPadding": 6,
+        "MetricGap": 5,
+        "DividerHeight": 8,
+        "PanelPadding": 8,
+        "HeaderHeight": 13,
+        "HighlightTopGap": 4,
+        "HighlightHeight": 26,
+        "ProgressTrackHeight": 2,
+        "ProgressVerticalGap": 6,
+        "CompactMetricGap": 2,
+        "EditHandleSize": 7,
+        "StrokeWidth": 1,
+        "TextShadowOffset": 1,
+        "EditOutlineInset": 1,
+        "CapsuleTextFontPoints": 5.85,
+        "CapsuleIconFontPoints": 5.1
+      },
+      "Metrics100": {
+        "LabelFontPoints": 10,
+        "CompactValueFontPoints": 12,
+        "PanelHeaderFontPoints": 13,
+        "HighlightedValueFontPoints": 15,
+        "CapsuleRadius": 10,
+        "PanelRadius": 14,
+        "HorizontalPadding": 10,
+        "MetricGap": 8,
+        "DividerHeight": 14,
+        "PanelPadding": 14,
+        "HeaderHeight": 22,
+        "HighlightTopGap": 6,
+        "HighlightHeight": 44,
+        "ProgressTrackHeight": 4,
+        "ProgressVerticalGap": 10,
+        "CompactMetricGap": 4,
+        "EditHandleSize": 12,
+        "StrokeWidth": 1,
+        "TextShadowOffset": 1,
+        "EditOutlineInset": 1,
+        "CapsuleTextFontPoints": 9.75,
+        "CapsuleIconFontPoints": 8.5
+      },
+      "Metrics130": {
+        "LabelFontPoints": 13,
+        "CompactValueFontPoints": 15.6,
+        "PanelHeaderFontPoints": 16.9,
+        "HighlightedValueFontPoints": 19.5,
+        "CapsuleRadius": 13,
+        "PanelRadius": 18,
+        "HorizontalPadding": 13,
+        "MetricGap": 10,
+        "DividerHeight": 18,
+        "PanelPadding": 18,
+        "HeaderHeight": 29,
+        "HighlightTopGap": 8,
+        "HighlightHeight": 57,
+        "ProgressTrackHeight": 5,
+        "ProgressVerticalGap": 13,
+        "CompactMetricGap": 5,
+        "EditHandleSize": 16,
+        "StrokeWidth": 1,
+        "TextShadowOffset": 1,
+        "EditOutlineInset": 1,
+        "CapsuleTextFontPoints": 12.68,
+        "CapsuleIconFontPoints": 11.05
+      },
+      "HighlightWsExToolWindowPresent": true,
+      "HighlightWsExNoActivatePresent": true,
+      "HighlightWsExTransparentPresent": true,
+      "HighlightShowInTaskbar": false,
+      "HighlightSetBoundsCoreDelta": 1,
+      "HighlightBounds": {
+        "X": 300,
+        "Y": 240,
+        "Width": 420,
+        "Height": 260
+      },
+      "HighlightDeviceDpi": 144,
+      "HighlightExpectedRingThicknessPixels": 3,
+      "HighlightHasRingRegion": true,
+      "HighlightHitTest": -1,
+      "HighlightHiddenAfterClear": true,
+      "HighlightRegionCleared": true
+    }
+  ]
+}

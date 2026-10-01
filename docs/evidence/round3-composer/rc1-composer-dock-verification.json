@@ -1,0 +1,419 @@
+{
+  "Passed": 59,
+  "Failed": 0,
+  "Steps": [
+    {
+      "Step": "A. current window size",
+      "Window": "308,244 2048x1224",
+      "Source": "uia-context",
+      "Level": "0 (full strip)",
+      "ContextRect": "1708,1396 25x25",
+      "ModelRect": "1738,1385 254x42",
+      "StripRect": "1381,1390 312x33",
+      "GapDip": 10.0,
+      "GapErrorDip": 0.0,
+      "CentreErrorPx": 0.5,
+      "ContextCentreErrorPx": 2.0,
+      "LeftClusterRight": 1185,
+      "LogContextMatchesUia": true
+    },
+    {
+      "Step": "B/C. resized to 1100 px wide",
+      "Window": "308,244 1100x1224",
+      "Source": "uia-context",
+      "Level": "hidden",
+      "ContextRect": "987,1396 25x25",
+      "StripRect": "(hidden)",
+      "FreeWidthDip": 75.33,
+      "WidthBudgetDip": 61.3,
+      "NarrowestVariantDip": 63.1
+    },
+    {
+      "Step": "B/C. resized to 900 px wide",
+      "Window": "308,244 900x1224",
+      "Source": "uia-context",
+      "Level": "3 (totals only)",
+      "ContextRect": "786,1396 25x25",
+      "ModelRect": "816,1385 254x42",
+      "StripRect": "658,1390 113x33",
+      "GapDip": 10.0,
+      "GapErrorDip": 0.0,
+      "CentreErrorPx": 0.5,
+      "ContextCentreErrorPx": 2.0,
+      "LeftClusterRight": 600,
+      "LogContextMatchesUia": true
+    },
+    {
+      "Step": "B/C. resized to 1700 px wide",
+      "Window": "308,244 1700x1224",
+      "Source": "uia-context",
+      "Level": "0 (full strip)",
+      "ContextRect": "1534,1396 25x25",
+      "ModelRect": "1564,1385 254x42",
+      "StripRect": "1207,1390 312x33",
+      "GapDip": 10.0,
+      "GapErrorDip": 0.0,
+      "CentreErrorPx": 0.5,
+      "ContextCentreErrorPx": 2.0,
+      "LeftClusterRight": 1011,
+      "LogContextMatchesUia": true
+    },
+    {
+      "Step": "D. maximized",
+      "Window": "-11,-11 2582x1550",
+      "Source": "uia-context",
+      "Level": "0 (full strip)",
+      "ContextRect": "1656,1456 25x25",
+      "ModelRect": "1686,1445 254x42",
+      "StripRect": "1329,1450 312x33",
+      "GapDip": 10.0,
+      "GapErrorDip": 0.0,
+      "CentreErrorPx": 0.5,
+      "ContextCentreErrorPx": 2.0,
+      "LeftClusterRight": 1133,
+      "LogContextMatchesUia": true
+    },
+    {
+      "Step": "E. restored",
+      "Window": "308,244 1700x1224",
+      "Source": "uia-context",
+      "Level": "0 (full strip)",
+      "ContextRect": "1534,1396 25x25",
+      "ModelRect": "1564,1385 254x42",
+      "StripRect": "1207,1390 312x33",
+      "GapDip": 10.0,
+      "GapErrorDip": 0.0,
+      "CentreErrorPx": 0.5,
+      "ContextCentreErrorPx": 2.0,
+      "LeftClusterRight": 1011,
+      "LogContextMatchesUia": true
+    },
+    {
+      "Step": "F. moved +120,+60",
+      "Window": "428,304 2048x1224",
+      "Source": "uia-context",
+      "Level": "0 (full strip)",
+      "ContextRect": "1828,1456 25x25",
+      "ModelRect": "1858,1445 254x42",
+      "StripRect": "1501,1450 312x33",
+      "GapDip": 10.0,
+      "GapErrorDip": 0.0,
+      "CentreErrorPx": 0.5,
+      "ContextCentreErrorPx": 2.0,
+      "LeftClusterRight": 1305,
+      "LogContextMatchesUia": true
+    },
+    {
+      "Step": "G. frame restored",
+      "Window": "308,244 2048x1224",
+      "Source": "uia-context",
+      "Level": "0 (full strip)",
+      "ContextRect": "1708,1396 25x25",
+      "ModelRect": "1738,1385 254x42",
+      "StripRect": "1381,1390 312x33",
+      "GapDip": 10.0,
+      "GapErrorDip": 0.0,
+      "CentreErrorPx": 0.5,
+      "ContextCentreErrorPx": 2.0,
+      "LeftClusterRight": 1185,
+      "LogContextMatchesUia": true
+    }
+  ],
+  "Checks": [
+    {
+      "Name": "A. current window size : docked to the Context control",
+      "Passed": true,
+      "Detail": "source = uia-context"
+    },
+    {
+      "Name": "A. current window size : the strip's right edge keeps the configured gap",
+      "Passed": true,
+      "Detail": "gap 15 px = 10 DIP, configured 10 DIP (+15 px expected)"
+    },
+    {
+      "Name": "A. current window size : gap is inside the 8-12 DIP target band",
+      "Passed": true,
+      "Detail": "10 DIP"
+    },
+    {
+      "Name": "A. current window size : vertically centred on the toolbar row",
+      "Passed": true,
+      "Detail": "|row centre - strip centre| = 0.5 px (row centre 1406, strip centre 1406.5)"
+    },
+    {
+      "Name": "A. current window size : the strip does not cover the composer's left controls",
+      "Passed": true,
+      "Detail": "strip left 1381, left cluster right 1185"
+    },
+    {
+      "Name": "A. current window size : the logged Context rect matches a fresh UI Automation read",
+      "Passed": true,
+      "Detail": "log 1708,1396 vs UIA 1708,1396"
+    },
+    {
+      "Name": "A. current window size : locked is completely click-through",
+      "Passed": true,
+      "Detail": "0 of 72 sampled points inside the strip resolve to the overlay (must be 0)"
+    },
+    {
+      "Name": "A. current window size : a point outside the strip reaches Codex untouched",
+      "Passed": true,
+      "Detail": "WindowFromPoint 4 px above the strip -> pid 55088 (Codex 55088)"
+    },
+    {
+      "Name": "B/C. resized to 1100 px wide : hidden because even the narrowest variant does not fit",
+      "Passed": true,
+      "Detail": "budget 61.3 DIP < narrowest 63.1 DIP"
+    },
+    {
+      "Name": "B/C. resized to 1100 px wide : hidden means nothing is covered",
+      "Passed": true,
+      "Detail": "no strip is drawn"
+    },
+    {
+      "Name": "B/C. resized to 1100 px wide : the logged Context rect matches a fresh UI Automation read",
+      "Passed": true,
+      "Detail": "log 987,1396 vs UIA 987,1396"
+    },
+    {
+      "Name": "B/C. resized to 900 px wide : docked to the Context control",
+      "Passed": true,
+      "Detail": "source = uia-context"
+    },
+    {
+      "Name": "B/C. resized to 900 px wide : the strip's right edge keeps the configured gap",
+      "Passed": true,
+      "Detail": "gap 15 px = 10 DIP, configured 10 DIP (+15 px expected)"
+    },
+    {
+      "Name": "B/C. resized to 900 px wide : gap is inside the 8-12 DIP target band",
+      "Passed": true,
+      "Detail": "10 DIP"
+    },
+    {
+      "Name": "B/C. resized to 900 px wide : vertically centred on the toolbar row",
+      "Passed": true,
+      "Detail": "|row centre - strip centre| = 0.5 px (row centre 1406, strip centre 1406.5)"
+    },
+    {
+      "Name": "B/C. resized to 900 px wide : the strip does not cover the composer's left controls",
+      "Passed": true,
+      "Detail": "strip left 658, left cluster right 600"
+    },
+    {
+      "Name": "B/C. resized to 900 px wide : the logged Context rect matches a fresh UI Automation read",
+      "Passed": true,
+      "Detail": "log 786,1396 vs UIA 786,1396"
+    },
+    {
+      "Name": "B/C. resized to 900 px wide : locked is completely click-through",
+      "Passed": true,
+      "Detail": "0 of 72 sampled points inside the strip resolve to the overlay (must be 0)"
+    },
+    {
+      "Name": "B/C. resized to 900 px wide : a point outside the strip reaches Codex untouched",
+      "Passed": true,
+      "Detail": "WindowFromPoint 4 px above the strip -> pid 55088 (Codex 55088)"
+    },
+    {
+      "Name": "B/C. resized to 1700 px wide : docked to the Context control",
+      "Passed": true,
+      "Detail": "source = uia-context"
+    },
+    {
+      "Name": "B/C. resized to 1700 px wide : the strip's right edge keeps the configured gap",
+      "Passed": true,
+      "Detail": "gap 15 px = 10 DIP, configured 10 DIP (+15 px expected)"
+    },
+    {
+      "Name": "B/C. resized to 1700 px wide : gap is inside the 8-12 DIP target band",
+      "Passed": true,
+      "Detail": "10 DIP"
+    },
+    {
+      "Name": "B/C. resized to 1700 px wide : vertically centred on the toolbar row",
+      "Passed": true,
+      "Detail": "|row centre - strip centre| = 0.5 px (row centre 1406, strip centre 1406.5)"
+    },
+    {
+      "Name": "B/C. resized to 1700 px wide : the strip does not cover the composer's left controls",
+      "Passed": true,
+      "Detail": "strip left 1207, left cluster right 1011"
+    },
+    {
+      "Name": "B/C. resized to 1700 px wide : the logged Context rect matches a fresh UI Automation read",
+      "Passed": true,
+      "Detail": "log 1534,1396 vs UIA 1534,1396"
+    },
+    {
+      "Name": "B/C. resized to 1700 px wide : locked is completely click-through",
+      "Passed": true,
+      "Detail": "0 of 72 sampled points inside the strip resolve to the overlay (must be 0)"
+    },
+    {
+      "Name": "B/C. resized to 1700 px wide : a point outside the strip reaches Codex untouched",
+      "Passed": true,
+      "Detail": "WindowFromPoint 4 px above the strip -> pid 55088 (Codex 55088)"
+    },
+    {
+      "Name": "D. maximized : docked to the Context control",
+      "Passed": true,
+      "Detail": "source = uia-context"
+    },
+    {
+      "Name": "D. maximized : the strip's right edge keeps the configured gap",
+      "Passed": true,
+      "Detail": "gap 15 px = 10 DIP, configured 10 DIP (+15 px expected)"
+    },
+    {
+      "Name": "D. maximized : gap is inside the 8-12 DIP target band",
+      "Passed": true,
+      "Detail": "10 DIP"
+    },
+    {
+      "Name": "D. maximized : vertically centred on the toolbar row",
+      "Passed": true,
+      "Detail": "|row centre - strip centre| = 0.5 px (row centre 1466, strip centre 1466.5)"
+    },
+    {
+      "Name": "D. maximized : the strip does not cover the composer's left controls",
+      "Passed": true,
+      "Detail": "strip left 1329, left cluster right 1133"
+    },
+    {
+      "Name": "D. maximized : the logged Context rect matches a fresh UI Automation read",
+      "Passed": true,
+      "Detail": "log 1656,1456 vs UIA 1656,1456"
+    },
+    {
+      "Name": "D. maximized : locked is completely click-through",
+      "Passed": true,
+      "Detail": "0 of 72 sampled points inside the strip resolve to the overlay (must be 0)"
+    },
+    {
+      "Name": "D. maximized : a point outside the strip reaches Codex untouched",
+      "Passed": true,
+      "Detail": "WindowFromPoint 4 px above the strip -> pid 55088 (Codex 55088)"
+    },
+    {
+      "Name": "E. restored : docked to the Context control",
+      "Passed": true,
+      "Detail": "source = uia-context"
+    },
+    {
+      "Name": "E. restored : the strip's right edge keeps the configured gap",
+      "Passed": true,
+      "Detail": "gap 15 px = 10 DIP, configured 10 DIP (+15 px expected)"
+    },
+    {
+      "Name": "E. restored : gap is inside the 8-12 DIP target band",
+      "Passed": true,
+      "Detail": "10 DIP"
+    },
+    {
+      "Name": "E. restored : vertically centred on the toolbar row",
+      "Passed": true,
+      "Detail": "|row centre - strip centre| = 0.5 px (row centre 1406, strip centre 1406.5)"
+    },
+    {
+      "Name": "E. restored : the strip does not cover the composer's left controls",
+      "Passed": true,
+      "Detail": "strip left 1207, left cluster right 1011"
+    },
+    {
+      "Name": "E. restored : the logged Context rect matches a fresh UI Automation read",
+      "Passed": true,
+      "Detail": "log 1534,1396 vs UIA 1534,1396"
+    },
+    {
+      "Name": "E. restored : locked is completely click-through",
+      "Passed": true,
+      "Detail": "0 of 72 sampled points inside the strip resolve to the overlay (must be 0)"
+    },
+    {
+      "Name": "E. restored : a point outside the strip reaches Codex untouched",
+      "Passed": true,
+      "Detail": "WindowFromPoint 4 px above the strip -> pid 55088 (Codex 55088)"
+    },
+    {
+      "Name": "F. moved +120,+60 : docked to the Context control",
+      "Passed": true,
+      "Detail": "source = uia-context"
+    },
+    {
+      "Name": "F. moved +120,+60 : the strip's right edge keeps the configured gap",
+      "Passed": true,
+      "Detail": "gap 15 px = 10 DIP, configured 10 DIP (+15 px expected)"
+    },
+    {
+      "Name": "F. moved +120,+60 : gap is inside the 8-12 DIP target band",
+      "Passed": true,
+      "Detail": "10 DIP"
+    },
+    {
+      "Name": "F. moved +120,+60 : vertically centred on the toolbar row",
+      "Passed": true,
+      "Detail": "|row centre - strip centre| = 0.5 px (row centre 1466, strip centre 1466.5)"
+    },
+    {
+      "Name": "F. moved +120,+60 : the strip does not cover the composer's left controls",
+      "Passed": true,
+      "Detail": "strip left 1501, left cluster right 1305"
+    },
+    {
+      "Name": "F. moved +120,+60 : the logged Context rect matches a fresh UI Automation read",
+      "Passed": true,
+      "Detail": "log 1828,1456 vs UIA 1828,1456"
+    },
+    {
+      "Name": "F. moved +120,+60 : locked is completely click-through",
+      "Passed": true,
+      "Detail": "0 of 72 sampled points inside the strip resolve to the overlay (must be 0)"
+    },
+    {
+      "Name": "F. moved +120,+60 : a point outside the strip reaches Codex untouched",
+      "Passed": true,
+      "Detail": "WindowFromPoint 4 px above the strip -> pid 55088 (Codex 55088)"
+    },
+    {
+      "Name": "G. frame restored : docked to the Context control",
+      "Passed": true,
+      "Detail": "source = uia-context"
+    },
+    {
+      "Name": "G. frame restored : the strip's right edge keeps the configured gap",
+      "Passed": true,
+      "Detail": "gap 15 px = 10 DIP, configured 10 DIP (+15 px expected)"
+    },
+    {
+      "Name": "G. frame restored : gap is inside the 8-12 DIP target band",
+      "Passed": true,
+      "Detail": "10 DIP"
+    },
+    {
+      "Name": "G. frame restored : vertically centred on the toolbar row",
+      "Passed": true,
+      "Detail": "|row centre - strip centre| = 0.5 px (row centre 1406, strip centre 1406.5)"
+    },
+    {
+      "Name": "G. frame restored : the strip does not cover the composer's left controls",
+      "Passed": true,
+      "Detail": "strip left 1381, left cluster right 1185"
+    },
+    {
+      "Name": "G. frame restored : the logged Context rect matches a fresh UI Automation read",
+      "Passed": true,
+      "Detail": "log 1708,1396 vs UIA 1708,1396"
+    },
+    {
+      "Name": "G. frame restored : locked is completely click-through",
+      "Passed": true,
+      "Detail": "0 of 72 sampled points inside the strip resolve to the overlay (must be 0)"
+    },
+    {
+      "Name": "G. frame restored : a point outside the strip reaches Codex untouched",
+      "Passed": true,
+      "Detail": "WindowFromPoint 4 px above the strip -> pid 55088 (Codex 55088)"
+    }
+  ]
+}

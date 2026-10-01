@@ -1,0 +1,250 @@
+{
+  "Dpi": 144,
+  "ScalePercent": 150,
+  "TolerancePixels": 2,
+  "Checks": [
+    {
+      "Name": "TEST 2  drag to the top-right region selects the TopRight anchor",
+      "Passed": true,
+      "Detail": "TopRight"
+    },
+    {
+      "Name": "TEST 2  offsetX is -24 DIP (measured from the window\u0027s right edge)",
+      "Passed": true,
+      "Detail": "-24 vs -24"
+    },
+    {
+      "Name": "TEST 2  offsetY is \u002B16 DIP (measured down from the window\u0027s top edge)",
+      "Passed": true,
+      "Detail": "16 vs 16"
+    },
+    {
+      "Name": "TEST 2  capture -\u003E resolve returns the same pixel rectangle",
+      "Passed": true,
+      "Detail": "(989,114) vs (989,114)"
+    },
+    {
+      "Name": "TEST 3/4  1000x700: lands within 2 px of anchor \u002B offset",
+      "Passed": true,
+      "Detail": "expected (589,114) actual (589,114)"
+    },
+    {
+      "Name": "TEST 3/4  1000x700: right margin stays 24 DIP",
+      "Passed": true,
+      "Detail": "24 DIP"
+    },
+    {
+      "Name": "TEST 3/4  1440x900: lands within 2 px of anchor \u002B offset",
+      "Passed": true,
+      "Detail": "expected (1029,114) actual (1029,114)"
+    },
+    {
+      "Name": "TEST 3/4  1440x900: right margin stays 24 DIP",
+      "Passed": true,
+      "Detail": "24 DIP"
+    },
+    {
+      "Name": "TEST 3/4  800x600: lands within 2 px of anchor \u002B offset",
+      "Passed": true,
+      "Detail": "expected (269,24) actual (269,24)"
+    },
+    {
+      "Name": "TEST 3/4  800x600: right margin stays 24 DIP",
+      "Passed": true,
+      "Detail": "24 DIP"
+    },
+    {
+      "Name": "TEST 4  growing the window back restores the original position exactly",
+      "Passed": true,
+      "Detail": "(989,114) vs (989,114)"
+    },
+    {
+      "Name": "TEST 4  25 resize cycles never rewrite the saved offset (no cumulative drift)",
+      "Passed": true,
+      "Detail": "TopRight (-24, 16)"
+    },
+    {
+      "Name": "TEST 4  after 25 cycles the original window size still gives the original position",
+      "Passed": true,
+      "Detail": "(989,114) vs (989,114)"
+    },
+    {
+      "Name": "TEST 5  maximize: position is anchor \u002B offset on the maximized frame",
+      "Passed": true,
+      "Detail": "expected (2029,24) actual (2029,24)"
+    },
+    {
+      "Name": "TEST 5  restore: position returns to the pre-maximize value",
+      "Passed": true,
+      "Detail": "(989,114)"
+    },
+    {
+      "Name": "TEST 7  moving Codex moves the strip by exactly the same delta",
+      "Passed": true,
+      "Detail": "delta (580,330) vs (580,330)"
+    },
+    {
+      "Name": "TEST 7  the anchor \u002B offset are identical before and after the move",
+      "Passed": true,
+      "Detail": "(989,114) -\u003E (1569,444)"
+    },
+    {
+      "Name": "CLAMP  a strip pushed off-screen is pulled back into view",
+      "Passed": true,
+      "Detail": "visible 495x51 of 495x51"
+    },
+    {
+      "Name": "CLAMP  the saved anchor \u002B offset are untouched by the clamp",
+      "Passed": true,
+      "Detail": "BottomRight (-12, -12)"
+    },
+    {
+      "Name": "CLAMP  growing the window afterwards returns the un-clamped position",
+      "Passed": true,
+      "Detail": "clamped (2167,1411) -\u003E restored (1007,921)"
+    },
+    {
+      "Name": "ANCHOR  TopLeft resolves to its own point on the window",
+      "Passed": true,
+      "Detail": "expected (138,105) actual (138,105)"
+    },
+    {
+      "Name": "ANCHOR  TopCenter resolves to its own point on the window",
+      "Passed": true,
+      "Detail": "expected (573,105) actual (573,105)"
+    },
+    {
+      "Name": "ANCHOR  TopRight resolves to its own point on the window",
+      "Passed": true,
+      "Detail": "expected (1007,105) actual (1007,105)"
+    },
+    {
+      "Name": "ANCHOR  LeftCenter resolves to its own point on the window",
+      "Passed": true,
+      "Detail": "expected (138,515) actual (138,515)"
+    },
+    {
+      "Name": "ANCHOR  Center resolves to its own point on the window",
+      "Passed": true,
+      "Detail": "expected (573,515) actual (573,515)"
+    },
+    {
+      "Name": "ANCHOR  RightCenter resolves to its own point on the window",
+      "Passed": true,
+      "Detail": "expected (1007,515) actual (1007,515)"
+    },
+    {
+      "Name": "ANCHOR  BottomLeft resolves to its own point on the window",
+      "Passed": true,
+      "Detail": "expected (138,921) actual (138,921)"
+    },
+    {
+      "Name": "ANCHOR  BottomCenter resolves to its own point on the window",
+      "Passed": true,
+      "Detail": "expected (573,921) actual (573,921)"
+    },
+    {
+      "Name": "ANCHOR  BottomRight resolves to its own point on the window",
+      "Passed": true,
+      "Detail": "expected (1007,921) actual (1007,921)"
+    },
+    {
+      "Name": "ANCHOR  3x3 region (0.10, 0.10) -\u003E TopLeft",
+      "Passed": true,
+      "Detail": "TopLeft"
+    },
+    {
+      "Name": "ANCHOR  3x3 region (0.50, 0.05) -\u003E TopCenter",
+      "Passed": true,
+      "Detail": "TopCenter"
+    },
+    {
+      "Name": "ANCHOR  3x3 region (0.90, 0.20) -\u003E TopRight",
+      "Passed": true,
+      "Detail": "TopRight"
+    },
+    {
+      "Name": "ANCHOR  3x3 region (0.05, 0.50) -\u003E LeftCenter",
+      "Passed": true,
+      "Detail": "LeftCenter"
+    },
+    {
+      "Name": "ANCHOR  3x3 region (0.50, 0.50) -\u003E Center",
+      "Passed": true,
+      "Detail": "Center"
+    },
+    {
+      "Name": "ANCHOR  3x3 region (0.95, 0.50) -\u003E RightCenter",
+      "Passed": true,
+      "Detail": "RightCenter"
+    },
+    {
+      "Name": "ANCHOR  3x3 region (0.10, 0.90) -\u003E BottomLeft",
+      "Passed": true,
+      "Detail": "BottomLeft"
+    },
+    {
+      "Name": "ANCHOR  3x3 region (0.50, 0.95) -\u003E BottomCenter",
+      "Passed": true,
+      "Detail": "BottomCenter"
+    },
+    {
+      "Name": "ANCHOR  3x3 region (0.85, 0.85) -\u003E BottomRight",
+      "Passed": true,
+      "Detail": "BottomRight"
+    },
+    {
+      "Name": "TEST 6  settings.json carries anchor / offsetX / offsetY as flat keys",
+      "Passed": true,
+      "Detail": "{ / \u0022settingsVersion\u0022: 2 / \u0022transparentBackground\u0022: true / \u0022anchor\u0022: \u0022TopRight\u0022 / \u0022offsetX\u0022: -24 / \u0022offsetY\u0022: 16 / \u0022positionMode\u0022: \u0022FollowCodex\u0022 / \u0022fixedScreenX\u0022: 0"
+    },
+    {
+      "Name": "TEST 6  reload gives back an identical attachment",
+      "Passed": true,
+      "Detail": "TopRight (-24, 16)"
+    },
+    {
+      "Name": "TEST 6  reload keeps transparency on and the position mode",
+      "Passed": true,
+      "Detail": "transparent=True mode=FollowCodex theme=Auto"
+    },
+    {
+      "Name": "MIGRATION  an untouched v1 default adopts the new TopCenter default instead of the stale corner",
+      "Passed": true,
+      "Detail": "TopCenter (0, 10)"
+    },
+    {
+      "Name": "MIGRATION  a v1 position the user actually chose is preserved",
+      "Passed": true,
+      "Detail": "TopLeft (40, 75)"
+    },
+    {
+      "Name": "DEFAULT  a fresh install starts at TopCenter with a 10 DIP top margin",
+      "Passed": true,
+      "Detail": "{ / \u0022settingsVersion\u0022: 2 / \u0022transparentBackground\u0022: true / \u0022anchor\u0022: \u0022TopCenter\u0022 / \u0022offsetX\u0022: 0 / \u0022offsetY\u0022: 10 / \u0022positionMode\u0022: \u0022FollowCodex\u0022 / \u0022fixedScreenX\u0022: 0"
+    },
+    {
+      "Name": "DPI  the same offset measures 24 DIP at 100 / 125 / 150 / 200%",
+      "Passed": true,
+      "Detail": "96dpi=24px (24dip), 120dpi=30px (24dip), 144dpi=36px (24dip), 192dpi=48px (24dip)"
+    },
+    {
+      "Name": "DPI  the strip\u0027s own width is 330 DIP on every monitor",
+      "Passed": true,
+      "Detail": "330dip, 330.4dip, 330dip, 330dip"
+    },
+    {
+      "Name": "DPI  crossing 100% -\u003E 150% shifts only by the DPI scaling, with no extra jump",
+      "Passed": true,
+      "Detail": "observed -177px, explained -177px"
+    },
+    {
+      "Name": "DPI  that shift does not depend on the window width (not a percentage model)",
+      "Passed": true,
+      "Detail": "1400px window -177px, 2600px window -177px"
+    }
+  ],
+  "Passed": 48,
+  "Failed": 0,
+  "Verdict": "PASS"
+}

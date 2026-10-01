@@ -1,0 +1,86 @@
+{
+  "cases": [
+    {
+      "name": "real-conversation",
+      "operation": "Create",
+      "primaryField": 1024,
+      "secondaryField": 1,
+      "visibleFields": 1024,
+      "snapshot": {
+        "threadId": "01a0f62b-580a-7173-9131-174ca788f0ea",
+        "logPath": "C:\\Users\\<user>\\.codex\\sessions\\2026\\10\\01\\rollout-2026-10-01T14-33-50-01a0f62b-580a-7173-9131-174ca788f0ea.jsonl",
+        "totalTokens": 2377282,
+        "inputTokens": 2362387,
+        "cachedInputTokens": 2233984,
+        "outputTokens": 14895,
+        "reasoningOutputTokens": 8277,
+        "contextUsedTokens": 123571,
+        "contextWindowTokens": 950000,
+        "updatedAtUtc": "2026-10-01T06:38:00Z",
+        "title": "按智能、性能和价格比较 AI 模型 | Artificial Analysis",
+        "turnId": "01a0f62b-9c99-7b62-ad5b-e84f0a8551c2",
+        "streaming": false,
+        "turnGenerationMs": 75223,
+        "turnOutputTokens": 14895,
+        "tps": 191.6,
+        "lastTurnTps": 191.6,
+        "ttftMs": 6131,
+        "tpsHeld": false,
+        "baselineSource": "rollout-tail",
+        "source": "ipc",
+        "carrier": "token_usage_record"
+      }
+    },
+    {
+      "name": "held-during-tool-call",
+      "operation": "Create",
+      "primaryField": 1024,
+      "secondaryField": 1,
+      "visibleFields": 1024,
+      "snapshot": {
+        "threadId": "01a0f62b-580a-7173-9131-174ca788f0ea",
+        "logPath": "x",
+        "totalTokens": 2377282,
+        "inputTokens": 2362387,
+        "cachedInputTokens": 2233984,
+        "outputTokens": 14895,
+        "reasoningOutputTokens": 8277,
+        "contextUsedTokens": 0,
+        "contextWindowTokens": 950000,
+        "updatedAtUtc": "2026-10-01T06:38:00Z",
+        "streaming": true,
+        "tps": 191.6,
+        "tpsHeld": true
+      }
+    },
+    {
+      "name": "brand-new-empty-conversation",
+      "operation": "Create",
+      "primaryField": 1024,
+      "secondaryField": 1,
+      "visibleFields": 1024,
+      "snapshot": {
+        "threadId": "ffffffff-0000-7000-8000-000000000000",
+        "logPath": "",
+        "totalTokens": 0,
+        "inputTokens": 0,
+        "cachedInputTokens": 0,
+        "outputTokens": 0,
+        "reasoningOutputTokens": 0,
+        "contextUsedTokens": 0,
+        "contextWindowTokens": 0,
+        "updatedAtUtc": "2026-10-01T06:38:00Z",
+        "tps": null,
+        "tpsHeld": false
+      }
+    },
+    {
+      "name": "waiting-before-any-conversation",
+      "operation": "Waiting",
+      "primaryField": 1024,
+      "secondaryField": 1,
+      "visibleFields": 1024,
+      "statusText": "正在寻找当前 Codex 会话…"
+    }
+  ]
+}
