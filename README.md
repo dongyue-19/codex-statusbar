@@ -1,6 +1,6 @@
 # CodexStatusbar
 
-<https://github.com/dongyue-19/codex-statusbar> · MIT licensed · **v1.0.0-rc1** (release candidate,
+<https://github.com/dongyue-19/codex-statusbar> · MIT licensed · **v1.0.0-rc2** (release candidate,
 feature-frozen)
 
 **English** · [简体中文](README.zh-CN.md)
@@ -246,6 +246,18 @@ Two measured traps, both fixed and pinned by the self-test:
 
 ## 3. Install and run
 
+### Normal use — nothing to do
+
+Once installed (see below), there is **no manual step, ever**. Windows logon starts
+`CodexStatusbar.exe --background`, which waits quietly with a tray icon and no window; the moment
+Codex Desktop appears it attaches by itself, and when Codex is closed the strip disappears while the
+watcher keeps waiting for the next launch. No `start-monitor.bat`, no PowerShell, no "start the
+monitor first", nothing to redo after a reboot. §10 covers exactly how that works, what is written
+to the registry, and how to turn it off.
+
+`start-monitor.bat` is kept, but only for the cases that need it: debugging, troubleshooting and a
+one-off manual launch.
+
 ### From a release
 
 Download `CodexStatusbar.exe` from
@@ -285,14 +297,22 @@ Codex Desktop; it will attach as soon as a Codex window is in the foreground.
 |---|---|
 | *(none)* | overlay + tray icon |
 | `--debug` | also write the diagnostics block (§5) to `%LOCALAPPDATA%\CodexStatusbar\debug.log` |
+| `--background`, `--watch-codex` | the logon mode: tray only, no window, attaches when Codex appears — this is what the Run value launches |
 | `--no-overlay` | headless; used for automated testing, produces the debug log only |
 | `--thread <id>` | pin the monitor to one conversation id |
 | `--sessions <path>` | override the sessions root (default `$CODEX_HOME\sessions` or `~\.codex\sessions`) |
+| `--install-startup` | register "Start with Windows" in HKCU and remember the choice |
+| `--uninstall-startup` | remove the registration and remember the choice |
+| `--startup-status` | print the registry key, the resolved command and whether it still points at this exe |
+| `--restart-wait` | internal: lets a restarting instance wait for the outgoing one to release the single-instance mutex |
 
-### Start automatically (optional)
+### Start with Windows
 
-Not enabled by default. To run it at login, put a shortcut to `dist\CodexStatusbar.exe` in
-`shell:startup`. Only do this once you are happy with the overlay's position.
+**On by default.** The first launch of a build that has this feature registers
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` → `CodexStatusbar` =
+`"<full path>\CodexStatusbar.exe" --background`. No administrator rights are involved at any point.
+The tray's **Start with Windows** item toggles it later, and turning it off is permanent: no upgrade
+re-enables it behind your back. §10 has the details.
 
 ---
 
@@ -607,6 +627,45 @@ they differ only when `Clamped: yes`, and even then the saved offset is untouche
 deliberately has no colon in its header so tools that parse the metric block are unaffected, and it is
 terminated by a blank line.
 
+`--debug` also appends a `[lifecycle]` block whenever the state changes, and a timestamped event for
+every transition, so a launch can be read back in order:
+
+```
+[22:36:55] watcher started · mode background · primary instance
+[22:36:55] startup registration: enabled (first run; on by default, the tray can turn it off)
+[22:38:03] waiting: no Codex detected
+[22:38:47] Codex process detected PID=55088 package=OpenAI.Codex version=26.928.3736.0
+[22:38:47] attaching: Codex process detected PID=55088 package=OpenAI.Codex version=26.928.3736.0 window=yes
+[22:38:47] main window ready
+[22:38:47] subsystems started: ipc reader, rollout reader, dock tracker=on
+[22:38:48] attach attempt 1: ipc=ready session=ready uia=waiting
+[22:38:48] active: attached after 1 attempt(s): ipc=ready session=ready uia=waiting
+
+[lifecycle]
+Mode:                background
+Single instance:     primary
+Startup registration:enabled
+Startup command:     "C:\...\CodexStatusbar.exe" --background
+Watcher state:       ACTIVE
+Codex detected:      true (PID 55088)
+Codex PID:           55088
+Package:             OpenAI.Codex
+Codex version:       26.928.3736.0
+Codex HWND:          190E18
+Attach attempt:      1
+IPC:                 connected
+Session:             ready
+UIA:                 waiting
+Overlay:             visible
+Detection rule:      accepted: ChatGPT, family OpenAI.Codex_2p2nqsd0c76g0
+Detections:          2 (last 10802 ms ago)
+Watcher error:       none
+```
+
+`Watcher state` is the lifecycle state from §10, `Detection rule` is the identity decision that was
+actually applied, and `Overlay: visible / hidden` is the strip's real state — read together they
+answer "is it attached, and is it on screen" without a screenshot.
+
 There are also several diagnostic probes that need no window:
 
 ```
@@ -622,7 +681,7 @@ CodexStatusbar.exe --hotkey-probe out.json      # Ctrl+Alt+Shift+P (fails by des
 ## 6. Verifying the numbers yourself
 
 ```
-CodexStatusbar.exe --self-test fixtures            # 183 checks over the production code
+CodexStatusbar.exe --self-test fixtures            # 246 checks over the production code
 python tools\verify_metrics.py          # real conversations, raw vs derived
 python tools\make_fixtures.py           # deterministic fixtures + assertions
 python tools\verify_tail_recovery.py    # bounded-tail recovery == full parse
@@ -654,7 +713,7 @@ maximises, restores and moves the Codex window and checks the strip's *real* rec
   a 5000 ms `CommandExecution` not changing the result; both carriers; five double-counting
   scenarios; the nine anchors and the 3×3 region rule; 25 resize cycles leaving the saved offset
   untouched; the display clamp never being written back; and the `CodexThemeSource` TOML rules
-  including against the real `config.toml` on this machine. **183 checks, currently all passing.**
+  including against the real `config.toml` on this machine. **246 checks, currently all passing.**
 * **`make_fixtures.py`** writes `fixtures\fixture-modern.jsonl` and `fixtures\fixture-legacy.jsonl`
   and asserts exact expected values. The TPS fixture is built so the answer is exact: Reasoning
   4000 ms + AgentMessage 3000 ms = 7000 ms of model output with a **5000 ms `CommandExecution`
@@ -819,3 +878,139 @@ measurement evidence — is in the tree and is what the numbers in this README w
 The attributions in §8 are also kept as a standalone notice in `THIRD-PARTY-NOTICES.md`, which is
 the file that carries the licence conditions; `LICENSE` is left as uninterrupted MIT text so GitHub
 identifies the project correctly.
+
+---
+
+## 10. Lifecycle — why nothing has to be started by hand
+
+The published program is one process with two jobs: a **watcher** that follows the Codex Desktop
+process, and the **overlay**, which only exists while there is something to dock to.
+
+```
+Windows logon
+   │   HKCU\...\Run  →  "<path>\CodexStatusbar.exe" --background
+   ▼
+WAITING_FOR_CODEX ── Codex detected ──▶ ATTACHING ── IPC/session or Context reference ──▶ ACTIVE
+   ▲                                                                                      │
+   └──────────────── DETACHING ◀── Codex exited ──────────────────────────────────────────┘
+```
+
+| state | what is running | tray shows |
+|---|---|---|
+| `WAITING_FOR_CODEX` | the process watcher and the tray icon. No IPC reconnect loop, no rollout scan, no `state_5.sqlite` query, no UI Automation, no Codex theme polling | `状态条：Waiting` |
+| `ATTACHING` | the subsystems are started and their readiness probed: retries at 0 / 250 / 500 ms / 1 s / 2 s, then every 2 s | `状态条：Connecting` |
+| `ACTIVE` | everything — IPC conversation routing, the rollout reader, and (in dock mode) the composer tracker | `状态条：Active` |
+| `DETACHING` | teardown — overlay hidden, IPC reader stopped and its conversation forgotten, rollout reader disposed, UIA tracker off | `状态条：Detaching` |
+
+**Codex exiting never ends the process.** The watcher goes back to `WAITING_FOR_CODEX` and waits for
+the next launch, so opening Codex a second time brings the strip back on its own. Everything
+Codex-specific is dropped on detach — PID, HWND, accessibility element, connected pipe, selected
+conversation — so a fresh Codex process is attached exactly like the first one, never inheriting a
+stale window or a stale thread id.
+
+### Which process counts as Codex Desktop
+
+Codex Desktop is Electron and its executable is named **`ChatGPT.exe`** — the same name the real
+ChatGPT desktop app uses. So the process name is only a cheap pre-filter and the decision is made on
+MSIX **package identity**:
+
+| signal | rule |
+|---|---|
+| `GetPackageFamilyName(process)` | must start with **`OpenAI.Codex_`** — the authoritative test |
+| `GetPackageFullName(process)` | carries the build, e.g. `OpenAI.Codex_26.928.3736.0_x64__2p2nqsd0c76g0` |
+| install path (fallback only) | used when no package identity can be read at all: it must contain `\WindowsApps\OpenAI.Codex_` |
+
+Measured on this machine: every Codex process — the Electron browser process and all eight of its
+renderers — reports `OpenAI.Codex_2p2nqsd0c76g0`; the unpackaged `codex.exe` CLI reports
+`APPMODEL_ERROR_NO_PACKAGE (15700)` and is rejected; a real ChatGPT Desktop would report
+`OpenAI.ChatGPT-Desktop_…` and is rejected as well. The decision that was actually applied is logged
+verbatim as `Detection rule:` (see §5), so a wrong attach is diagnosable instead of mysterious.
+
+### Detection cost — why the polling here is not a busy loop
+
+The unprivileged event-driven options were each ruled out: `Win32_ProcessStartTrace` /
+`ManagementEventWatcher` require administrator rights, which this project refuses to ask for, and
+there is no per-package process notification that works without them. So while Codex is *absent* the
+watcher polls — in two tiers, because measuring this machine showed the obvious single-tier version
+is not cheap at all:
+
+| call | what it returns | measured here |
+|---|---|---|
+| `EnumProcesses` | every PID, no names | **0.10 ms** |
+| `CreateToolhelp32Snapshot` | names as well | **9.62 ms** (375 processes) |
+
+Taking the expensive one every two seconds is 4.8 ms/s — 0.5 % of a core — on a machine where Codex
+is closed, and it buys nothing. So a poll reads the cheap one, and a full identity check happens only
+for PIDs that **appeared** since the previous poll: a process set that gained nothing cannot contain a
+Codex that just started. Looking up one new PID costs a handle open plus one `GetPackageFamilyName`
+(~0.1 ms) and needs no name at all, because the package family name is the authoritative signal. The
+window enumeration is only reached once something *is* accepted.
+
+* **While Codex is absent**: ~0.1 ms every 2 s. Measured **0.03–0.10 % of one core**.
+* **While Codex is present** the polling stops entirely: the watcher blocks on the process handle
+  instead, so the attached state does no polling at all.
+* The state that lasts longest is also the cheapest: the UI timer drops from 350 ms to **1 s** and
+  does nothing but read one field and compare two tray labels.
+
+`Detections:` in the debug block is the heartbeat for all of this. A growing age while
+`WAITING_FOR_CODEX` means the watcher has stalled; a growing age while `ACTIVE` is normal, because
+there is nothing to poll for.
+
+### Start with Windows
+
+```
+Key:      HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+Value:    CodexStatusbar
+Command:  "<full path>\CodexStatusbar.exe" --background
+Admin:    no — HKCU only, never HKLM, never a service, never a scheduled task
+```
+
+* The path is always quoted, so an install directory containing spaces cannot be mis-parsed.
+* **On by default, once.** The first launch of a build that has this feature registers it. After
+  that the setting is the user's: unchecking it deletes the value and no later launch or upgrade
+  re-creates it. `settings.json` keeps both `startWithWindows` (the intent) and `startupConfigured`
+  (whether the one-time default has been applied), because "never configured" and "turned off" are
+  otherwise indistinguishable.
+* **The path self-repairs.** If the value points at a directory the exe has since moved out of, the
+  next launch rewrites it (§22 in the original spec).
+* The executable is a **GUI-subsystem** binary, so the logon launch shows no console window — only
+  the tray icon, and the strip once Codex appears.
+
+Three commands cover it without the tray, for scripts and troubleshooting:
+
+```
+CodexStatusbar.exe --startup-status        # key, value name, command, current exe, whether they match
+CodexStatusbar.exe --install-startup       # register, and remember the choice
+CodexStatusbar.exe --uninstall-startup     # unregister, and remember the choice
+```
+
+### Tray menu
+
+| item | effect |
+|---|---|
+| `Status · 状态` | `Codex：运行中 · PID … · OpenAI.Codex` / `Codex：未运行`, and `状态条：Waiting / Connecting / Active / Detaching` |
+| `Start with Windows · 开机自动启动` | toggles the HKCU value; the checkmark shows the registry's real state, and a write failure reverts it |
+| `Start / Attach now · 立即检测并附着` | re-detects Codex immediately and restarts the attach ladder — for a Codex that was started while the watcher was asleep |
+| `Restart Statusbar · 重启状态条` | relaunches the exe and exits; the new instance waits briefly for the single-instance mutex |
+| `Position`, `主题`, `详情面板`, … | unchanged (§4) |
+| `退出` | exits the overlay, the watcher, the tray and the process — **without** unregistering "Start with Windows", so the next logon starts it again |
+
+The tray tooltip reads `Codex Statusbar — Waiting for Codex` while waiting and
+`Codex Statusbar — Active` when attached (then switches to the conversation id and token count once
+the metrics arrive). No toast notifications are ever shown.
+
+### Single instance
+
+A named mutex, `Local\CodexStatusbar.SingleInstance`, taken before anything else starts. A logon
+launch, a double-click and `start-monitor.bat` can all happen in any order and only one of them
+becomes the primary: the others exit quietly with code 0, so there is never a second overlay, a
+second tray icon or a second IPC consumer. Deliberate restarts pass `--restart-wait`, which lets the
+new process wait up to 15 s for the outgoing one to release the name. Probes and `--self-test` run
+before the mutex and are unaffected.
+
+### Verified
+
+`tools\verify_lifecycle_live.ps1` drives the real Codex Desktop through close/open cycles and checks
+both sides: the overlay's own `[lifecycle]` block *and* an independent Win32 window enumeration, so
+"attached" has to mean the strip is really on screen. It reports how many checks passed and writes
+`lifecycle-verification.json`.

@@ -4,7 +4,7 @@
 
 ![CodexStatusbar 停靠在 Codex 输入框底栏、Context 指示器左侧](docs/images/docked-strip.png)
 
-<https://github.com/dongyue-19/codex-statusbar> · MIT 许可 · **v1.0.0-rc1**（release candidate，功能已冻结）
+<https://github.com/dongyue-19/codex-statusbar> · MIT 许可 · **v1.0.0-rc2**（release candidate，功能已冻结）
 
 **获取可执行文件：** 从 [最新 release](https://github.com/dongyue-19/codex-statusbar/releases) 下载
 `CodexStatusbar.exe` —— 自包含的 61 MB 单文件，不需要安装 .NET 运行时 —— 把它放到
@@ -227,6 +227,16 @@ cache_hit_rate = Σ cached_input_tokens / Σ input_tokens × 100%
 
 ## 3. 安装与运行
 
+### 正常使用 —— 什么都不用做
+
+安装完成之后（见下文），**永远不需要任何手动步骤**。Windows 登录会启动
+`CodexStatusbar.exe --background`，它带着托盘图标、没有窗口，安静地等待；Codex Desktop 一出现，
+它就自行附着；Codex 关闭时状态条随之消失，而监视器继续等待下一次启动。不需要
+`start-monitor.bat`，不需要 PowerShell，不需要"先启动监控"，重启电脑之后也不用重做任何事。
+§10 完整说明了它是如何工作的、往注册表写了什么、以及怎么关掉。
+
+`start-monitor.bat` 仍然保留，但只用于确实需要它的场合：调试、排障和一次性手动启动。
+
 ### 从 release 安装
 
 从 <https://github.com/dongyue-19/codex-statusbar/releases> 下载 `CodexStatusbar.exe`，把它放在
@@ -264,14 +274,21 @@ pwsh -File build.ps1 -SkipTest    # build + publish only
 |---|---|
 | *（无）* | 覆盖窗口 + 托盘图标 |
 | `--debug` | 额外把诊断信息块（§5）写入 `%LOCALAPPDATA%\CodexStatusbar\debug.log` |
+| `--background`、`--watch-codex` | 登录模式：只有托盘、没有窗口，Codex 出现时自行附着 —— Run 值启动的就是它 |
 | `--no-overlay` | 无界面运行；用于自动化测试，只产出调试日志 |
 | `--thread <id>` | 把监控器钉在一个对话 id 上 |
 | `--sessions <path>` | 覆盖会话根目录（默认 `$CODEX_HOME\sessions` 或 `~\.codex\sessions`） |
+| `--install-startup` | 在 HKCU 中登记"开机自动启动"，并记住该选择 |
+| `--uninstall-startup` | 移除该登记，并记住该选择 |
+| `--startup-status` | 打印注册表键、解析出的命令，以及它是否仍指向当前这个 exe |
+| `--restart-wait` | 内部使用：让一个正在重启的实例等待即将退出的实例释放单实例互斥体 |
 
-### 开机自动启动（可选）
+### 开机自动启动
 
-默认不启用。要在登录时运行，把一个指向 `dist\CodexStatusbar.exe` 的快捷方式放进 `shell:startup`。
-请在你对覆盖窗口的位置满意之后再这么做。
+**默认开启。** 带此功能的构建在第一次启动时会登记
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` → `CodexStatusbar` =
+`"<full path>\CodexStatusbar.exe" --background`。整个过程都不涉及管理员权限。托盘的
+**开机自动启动** 项之后可以切换它，而且关掉就是永久的：没有升级会在你背后重新打开它。细节见 §10。
 
 ---
 
@@ -569,6 +586,45 @@ Clamped:             no
 位置；只有当 `Clamped: yes` 时两者才会不同，而即便如此保存的偏移也未被改动。该段的标题刻意不含
 冒号，以免解析指标块的工具受到影响，并且以空行结束。
 
+每当状态发生变化，`--debug` 还会追加一个 `[lifecycle]` 块，并为每一次状态迁移追加一条带时间戳的
+事件，因此一次启动过程可以按顺序回读：
+
+```
+[22:36:55] watcher started · mode background · primary instance
+[22:36:55] startup registration: enabled (first run; on by default, the tray can turn it off)
+[22:38:03] waiting: no Codex detected
+[22:38:47] Codex process detected PID=55088 package=OpenAI.Codex version=26.928.3736.0
+[22:38:47] attaching: Codex process detected PID=55088 package=OpenAI.Codex version=26.928.3736.0 window=yes
+[22:38:47] main window ready
+[22:38:47] subsystems started: ipc reader, rollout reader, dock tracker=on
+[22:38:48] attach attempt 1: ipc=ready session=ready uia=waiting
+[22:38:48] active: attached after 1 attempt(s): ipc=ready session=ready uia=waiting
+
+[lifecycle]
+Mode:                background
+Single instance:     primary
+Startup registration:enabled
+Startup command:     "C:\...\CodexStatusbar.exe" --background
+Watcher state:       ACTIVE
+Codex detected:      true (PID 55088)
+Codex PID:           55088
+Package:             OpenAI.Codex
+Codex version:       26.928.3736.0
+Codex HWND:          190E18
+Attach attempt:      1
+IPC:                 connected
+Session:             ready
+UIA:                 waiting
+Overlay:             visible
+Detection rule:      accepted: ChatGPT, family OpenAI.Codex_2p2nqsd0c76g0
+Detections:          2 (last 10802 ms ago)
+Watcher error:       none
+```
+
+`Watcher state` 是 §10 里的生命周期状态，`Detection rule` 是实际采用的身份判定，而
+`Overlay: visible / hidden` 是状态条的真实状态 —— 合起来读，无需截图就能回答"它附着了吗、
+以及它在屏幕上吗"。`Detections:` 是监视器线程的心跳（见 §10 的检测开销一节）。
+
 另外还有几个不需要窗口的诊断探针（probe）：
 
 ```
@@ -584,7 +640,7 @@ CodexStatusbar.exe --hotkey-probe out.json      # Ctrl+Alt+Shift+P (fails by des
 ## 6. 自己验证这些数字
 
 ```
-CodexStatusbar.exe --self-test fixtures            # 183 checks over the production code
+CodexStatusbar.exe --self-test fixtures            # 246 checks over the production code
 python tools\verify_metrics.py          # real conversations, raw vs derived
 python tools\make_fixtures.py           # deterministic fixtures + assertions
 python tools\verify_tail_recovery.py    # bounded-tail recovery == full parse
@@ -614,7 +670,7 @@ Codex 窗口，每次都把状态条的*真实*矩形与 `anchor + offset` 对�
   合并为 `10000` ms 而不是 `11000`；一个 5000 ms 的 `CommandExecution` 不改变结果；两种载体；
   五个重复计数场景；九个锚点与 3×3 区域规则；25 次缩放循环后保存的偏移不被改动；显示钳制永不
   写回；以及 `CodexThemeSource` 的 TOML 规则，包括针对本机真实 `config.toml` 的检查。
-  **183 checks，目前全部通过。**
+  **246 checks，目前全部通过。**
 * **`make_fixtures.py`** 写出 `fixtures\fixture-modern.jsonl` 与 `fixtures\fixture-legacy.jsonl`，
   并断言精确的期望值。TPS 固定装置（fixture）构造得让答案是精确的：Reasoning 4000 ms + AgentMessage
   3000 ms = 7000 ms 的模型输出，其间夹着一个**必须被排除的 5000 ms `CommandExecution`**；
@@ -760,3 +816,129 @@ codex app-server generate-json-schema --experimental --out docs\app-server-schem
 
 §8 中的归属声明同时以独立文件 `THIRD-PARTY-NOTICES.md` 保留，承载许可条件的正是该文件；
 `LICENSE` 保持为不被打断的 MIT 正文，以便 GitHub 正确识别项目。
+
+---
+
+## 10. 生命周期 —— 为什么不需要手动启动任何东西
+
+发布出去的程序是一个进程，干两件事：**监视器（watcher）**跟随 Codex Desktop 进程，以及**覆盖
+窗口（overlay）**，后者只在有东西可以停靠时才存在。
+
+```
+Windows logon
+   │   HKCU\...\Run  →  "<path>\CodexStatusbar.exe" --background
+   ▼
+WAITING_FOR_CODEX ── Codex detected ──▶ ATTACHING ── IPC/session or Context reference ──▶ ACTIVE
+   ▲                                                                                      │
+   └──────────────── DETACHING ◀── Codex exited ──────────────────────────────────────────┘
+```
+
+| 状态 | 正在运行的东西 | 托盘显示 |
+|---|---|---|
+| `WAITING_FOR_CODEX` | 进程监视器与托盘图标。没有 IPC 重连循环、没有 rollout 扫描、没有 `state_5.sqlite` 查询、没有 UI Automation、没有 Codex 主题轮询 | `状态条：Waiting` |
+| `ATTACHING` | 各子系统已启动并探测其就绪状态：在 0 / 250 / 500 ms / 1 s / 2 s 重试，之后每 2 s 一次 | `状态条：Connecting` |
+| `ACTIVE` | 全部功能 —— IPC 对话路由、rollout 读取器，以及（在停靠模式下）输入框底栏跟踪器 | `状态条：Active` |
+| `DETACHING` | 拆解 —— 隐藏覆盖窗口、停止 IPC 读取器并忘掉它的对话、释放 rollout 读取器、关闭 UIA 跟踪器 | `状态条：Detaching` |
+
+**Codex 退出永远不会结束这个进程。** 监视器回到 `WAITING_FOR_CODEX`，等待下一次启动，所以第二次
+打开 Codex 时状态条会自行回来。所有与 Codex 相关的东西都在 detach 时丢弃 —— PID、HWND、无障碍
+元素、已连接的管道、选中的对话 —— 因此新的 Codex 进程会像第一个那样被附着，绝不会继承一个陈旧的
+窗口或陈旧的 thread id。
+
+### 哪个进程才算 Codex Desktop
+
+Codex Desktop 是 Electron 应用，其可执行文件名是 **`ChatGPT.exe`** —— 与真正的 ChatGPT 桌面应用
+同名。所以进程名只是一个廉价的预筛选，真正的判定基于 MSIX **包标识（package identity）**：
+
+| 信号 | 规则 |
+|---|---|
+| `GetPackageFamilyName(process)` | 必须以 **`OpenAI.Codex_`** 开头 —— 这是权威判据 |
+| `GetPackageFullName(process)` | 携带具体构建号，例如 `OpenAI.Codex_26.928.3736.0_x64__2p2nqsd0c76g0` |
+| 安装路径（仅作回退） | 在完全读不到包标识时使用：路径必须包含 `\WindowsApps\OpenAI.Codex_` |
+
+在本机实测：每一个 Codex 进程 —— Electron 浏览器进程及其全部八个渲染进程 —— 都报告
+`OpenAI.Codex_2p2nqsd0c76g0`；未打包的 `codex.exe` CLI 报告
+`APPMODEL_ERROR_NO_PACKAGE (15700)` 并被拒绝；真正的 ChatGPT Desktop 会报告
+`OpenAI.ChatGPT-Desktop_…`，同样被拒绝。实际采用的判定会逐字记录为 `Detection rule:`（见 §5），
+因此附错了进程是可诊断的，而不是一个谜。
+
+### 检测开销 —— 为什么这里的轮询不是忙等
+
+不需要特权的那些事件驱动方案都被逐一排除了：`Win32_ProcessStartTrace` /
+`ManagementEventWatcher` 需要管理员权限，而本项目拒绝索取管理员权限；同时也没有任何按包
+（per-package）的进程通知能在没有它们的情况下工作。所以 Codex **不在时**监视器需要轮询 —— 分两级
+轮询，因为在本机实测表明"想当然的单级做法"一点也不便宜：
+
+| 调用 | 返回内容 | 本机实测 |
+|---|---|---|
+| `EnumProcesses` | 全部 PID，不含进程名 | **0.10 ms** |
+| `CreateToolhelp32Snapshot` | 连进程名一起返回 | **9.62 ms**（375 个进程） |
+
+每两秒调用一次昂贵的那个，就是 4.8 ms/s —— 单核的 0.5 % —— 而这台机器上 Codex 根本没开，
+花这些钱什么也换不来。所以一次轮询只读廉价的那个，完整身份校验**只对上次轮询之后新出现的 PID**
+执行：进程集合既然没有增加，就不可能包含刚刚启动的 Codex。查一个新 PID 只需打开一个句柄加一次
+`GetPackageFamilyName`（约 0.1 ms），而且完全不需要进程名 —— 包家族名才是权威信号。窗口枚举只有
+在确实命中之后才会发生。
+
+* **Codex 不在时**：每 2 s 约 0.1 ms。实测 **单核的 0.03–0.10 %**。
+* **Codex 存在时**：轮询完全停止 —— 监视器改为阻塞在进程句柄上，活跃状态完全不产生轮询开销。
+* 存活时间最长的状态也最便宜：UI 定时器从 350 ms 降到 **1 s**，且只做读取一个字段、比较两个
+  托盘标签这两件事。
+
+调试块里的 `Detections:` 就是这一切的心跳。`WAITING_FOR_CODEX` 下这个时间差持续变大，说明监视器
+卡住了；而 `ACTIVE` 下它持续变大是正常的，因为此时本来就没有东西可轮询。
+
+### 开机自动启动
+
+```
+Key:      HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+Value:    CodexStatusbar
+Command:  "<full path>\CodexStatusbar.exe" --background
+Admin:    no — HKCU only, never HKLM, never a service, never a scheduled task
+```
+
+* 路径始终带引号，因此包含空格的安装目录不会被解析错。
+* **默认开启，且只开一次。** 带此功能的构建在第一次启动时登记它。此后这一设置属于用户：取消勾选
+  会删除该值，之后任何启动或升级都不会重新创建它。`settings.json` 同时保留 `startWithWindows`
+  （意图）与 `startupConfigured`（那次一次性默认是否已经应用过），因为"从未配置"和"已被关掉"
+  否则无法区分。
+* **路径会自我修复。** 如果该值指向的目录 exe 已经不在其中，下一次启动会重写它（原始规格中的
+  §22）。
+* 可执行文件是 **GUI 子系统**二进制，因此登录时启动不会出现控制台窗口 —— 只有托盘图标，以及
+  Codex 出现后的状态条。
+
+三条命令可以在不用托盘的情况下完成同样的事，供脚本与排障使用：
+
+```
+CodexStatusbar.exe --startup-status        # key, value name, command, current exe, whether they match
+CodexStatusbar.exe --install-startup       # register, and remember the choice
+CodexStatusbar.exe --uninstall-startup     # unregister, and remember the choice
+```
+
+### 托盘菜单
+
+| 菜单项 | 作用 |
+|---|---|
+| `Status · 状态` | `Codex：运行中 · PID … · OpenAI.Codex` / `Codex：未运行`，以及 `状态条：Waiting / Connecting / Active / Detaching` |
+| `Start with Windows · 开机自动启动` | 切换 HKCU 中的值；勾选状态显示注册表的真实状态，写入失败会回退 |
+| `Start / Attach now · 立即检测并附着` | 立即重新检测 Codex 并重跑附着阶梯 —— 用于在监视器休眠期间才启动的 Codex |
+| `Restart Statusbar · 重启状态条` | 重新启动该 exe 并退出；新实例会短暂等待单实例互斥体 |
+| `Position`、`主题`、`详情面板`、… | 未变（§4） |
+| `退出` | 退出覆盖窗口、监视器、托盘与整个进程 —— **不会**取消"开机自动启动"的登记，所以下次登录仍会启动它 |
+
+等待时托盘提示（tooltip）显示 `Codex Statusbar — Waiting for Codex`，附着后显示
+`Codex Statusbar — Active`（指标到达后再切换为对话 id 与 token 数）。任何时候都不会弹出通知。
+
+### 单实例
+
+一个命名互斥体 `Local\CodexStatusbar.SingleInstance`，在任何其它东西启动之前获取。登录启动、
+双击和 `start-monitor.bat` 可以以任意顺序发生，其中只有一个会成为主实例：其余几个以退出码 0
+安静退出，因此永远不会出现第二个覆盖窗口、第二个托盘图标或第二个 IPC 消费者。有意的重启会传入
+`--restart-wait`，让新进程最多等待 15 s，直到即将退出的实例释放该名称。探针与 `--self-test`
+在互斥体之前运行，不受影响。
+
+### 已验证
+
+`tools\verify_lifecycle_live.ps1` 驱动真实的 Codex Desktop 走完关闭/打开循环，并同时校验两侧：
+覆盖窗口自己的 `[lifecycle]` 块*和*一次独立的 Win32 窗口枚举，因此"已附着"必须意味着状态条真的
+在屏幕上。它会报告通过了多少项检查，并写出 `lifecycle-verification.json`。

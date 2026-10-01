@@ -131,6 +131,7 @@ internal static class ProbeRunner
         if (args.Count >= 2 && args[0].Equals("--ipc-probe", StringComparison.OrdinalIgnoreCase))
         {
             using var routeMonitor = new CodexIpcActiveThreadMonitor();
+            routeMonitor.Start();
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
             ActiveThreadRouteStatus status;
             do
@@ -200,6 +201,7 @@ internal static class ProbeRunner
         try
         {
             using var monitor = new CodexIpcActiveThreadMonitor();
+            monitor.Start();
             var deadline = DateTime.UtcNow.AddSeconds(seconds);
             while (DateTime.UtcNow < deadline)
             {

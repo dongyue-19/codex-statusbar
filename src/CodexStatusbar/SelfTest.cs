@@ -62,6 +62,9 @@ internal static class SelfTest
         Section("composer dock: UI Automation reference, native type size, responsive ladder");
         RunComposerDock(stdout);
 
+        Section("lifecycle: Codex identity, start with Windows, attach ladder");
+        RunLifecycle(stdout);
+
         stdout.WriteLine();
         stdout.WriteLine($"checks: {_checks}   failures: {_failures}");
         stdout.WriteLine($"RESULT: {(_failures == 0 ? "PASS" : "FAIL")}");
@@ -775,6 +778,250 @@ internal static class SelfTest
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The lifecycle contract, entirely as pure rules: which process counts as Codex Desktop, what
+    /// Windows is asked to launch at logon, when the registry may be touched at all, and how the
+    /// attach ladder advances. Nothing here starts a watcher, writes the registry or needs Codex to
+    /// be running — the live behaviour is verified separately by the lifecycle acceptance run.
+    /// </summary>
+    private static void RunLifecycle(TextWriter stdout)
+    {
+        const string officialFamily = "OpenAI.Codex_2p2nqsd0c76g0";
+        const string officialPath =
+            @"C:\Program Files\WindowsApps\OpenAI.Codex_26.928.3736.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe";
+        const string realChatGptPath =
+            @"C:\Program Files\WindowsApps\OpenAI.ChatGPT-Desktop_1.2.3_x64__abc123\ChatGPT.exe";
+
+        // --- the Codex Desktop identity rule ---
+        Check(
+            "official Codex Desktop (ChatGPT.exe + OpenAI.Codex package) is accepted",
+            CodexIdentityRules.IsCodexDesktop("ChatGPT", officialFamily, officialPath),
+            true);
+        Check(
+            "a renderer child of the same package is accepted too",
+            CodexIdentityRules.IsCodexDesktop("ChatGPT", officialFamily, officialPath),
+            true);
+        Check(
+            "the real ChatGPT desktop app is rejected although its exe is also ChatGPT.exe",
+            CodexIdentityRules.IsCodexDesktop("ChatGPT", "OpenAI.ChatGPT-Desktop_abc123", realChatGptPath),
+            false);
+        Check(
+            "a ChatGPT.exe with no package identity is rejected",
+            CodexIdentityRules.IsCodexDesktop("ChatGPT", null, @"C:\Tools\ChatGPT.exe"),
+            false);
+        Check(
+            "an empty family name does not fall back to a non-MSIX path",
+            CodexIdentityRules.IsCodexDesktop("ChatGPT", "", @"C:\Program Files\ChatGPT\ChatGPT.exe"),
+            false);
+        Check(
+            "the package identity wins over an unexpected install path",
+            CodexIdentityRules.IsCodexDesktop("ChatGPT", officialFamily, @"D:\moved\ChatGPT.exe"),
+            true);
+        Check(
+            "the unpackaged codex.exe CLI is not the desktop client",
+            CodexIdentityRules.IsCodexDesktop(
+                "Codex",
+                null,
+                @"C:\Users\u\AppData\Local\OpenAI\Codex\bin\c6fe824d725f02d7\codex.exe"),
+            false);
+        Check(
+            "a Codex.exe inside the MSIX package is accepted by the path fallback",
+            CodexIdentityRules.IsCodexDesktop(
+                "Codex",
+                null,
+                @"C:\Program Files\WindowsApps\OpenAI.Codex_1.0.0.0_x64__h\app\codex.exe"),
+            true);
+        Check(
+            "a process name that merely contains Codex is rejected",
+            CodexIdentityRules.IsCodexDesktop("CodexHelper", officialFamily, officialPath),
+            false);
+        Check(
+            "a family name that merely contains OpenAI.Codex is rejected",
+            CodexIdentityRules.IsCodexDesktop("ChatGPT", "Fake.OpenAI.Codex_x", officialPath),
+            false);
+        Check(
+            "an unrelated process is rejected",
+            CodexIdentityRules.IsCodexDesktop("explorer", officialFamily, @"C:\Windows\explorer.exe"),
+            false);
+        Check(
+            "the explanation names the signal that decided it",
+            CodexIdentityRules.Explain("ChatGPT", officialFamily, officialPath).StartsWith("accepted"),
+            true);
+
+        // The pre-filter has to accept both spellings: Process.GetProcessesByName reports "ChatGPT"
+        // while a Toolhelp32 snapshot reports "ChatGPT.exe". Comparing only one of them finds nothing
+        // and the watcher goes blind while Codex is running.
+        Check("the pre-filter accepts the bare process name", CodexIdentityRules.IsCandidateProcessName("ChatGPT"), true);
+        Check("the pre-filter accepts the file name from a Toolhelp snapshot", CodexIdentityRules.IsCandidateProcessName("ChatGPT.exe"), true);
+        Check("the pre-filter is case-insensitive", CodexIdentityRules.IsCandidateProcessName("chatgpt.EXE"), true);
+        Check("the pre-filter accepts the unpackaged CLI name", CodexIdentityRules.IsCandidateProcessName("codex.exe"), true);
+        Check("the pre-filter rejects a longer name that merely starts the same", CodexIdentityRules.IsCandidateProcessName("CodexHelper.exe"), false);
+        Check("the pre-filter rejects the real ChatGPT app's name", CodexIdentityRules.IsCandidateProcessName("ChatGPT-Desktop.exe"), false);
+        Check("the pre-filter rejects everything else", CodexIdentityRules.IsCandidateProcessName("explorer.exe"), false);
+        Check("the pre-filter rejects an empty name", CodexIdentityRules.IsCandidateProcessName(""), false);
+
+        // The incremental detection path reads package identity for a PID whose name it does not
+        // know, so the rule has to decide on identity alone.
+        Check(
+            "identity alone accepts a Codex process when the name is unknown",
+            CodexIdentityRules.IsCodexDesktop(null, officialFamily, officialPath),
+            true);
+        Check(
+            "identity alone rejects a process with no package and no MSIX path",
+            CodexIdentityRules.IsCodexDesktop(null, null, @"C:\Tools\ChatGPT.exe"),
+            false);
+        Check(
+            "the MSIX path still identifies Codex when the name is unknown",
+            CodexIdentityRules.IsCodexDesktop(null, null, officialPath),
+            true);
+
+        // --- what Windows will launch at logon ---
+        const string exe = @"C:\Program Files\CodexStatusbar\CodexStatusbar.exe";
+        Check(
+            "the Run command quotes the path and appends --background",
+            StartupManager.BuildCommand(exe),
+            "\"" + exe + "\" --background");
+        Check(
+            "the quoted path round-trips out of the Run value",
+            StartupManager.ParseExecutablePath(StartupManager.BuildCommand(exe)),
+            exe);
+        Check(
+            "an unquoted Run value still round-trips",
+            StartupManager.ParseExecutablePath(@"C:\Tools\CodexStatusbar.exe"),
+            @"C:\Tools\CodexStatusbar.exe");
+        Check(
+            "a path containing spaces matches its own registration",
+            StartupManager.PathMatches(StartupManager.BuildCommand(exe), exe),
+            true);
+        Check(
+            "a different install directory does not match",
+            StartupManager.PathMatches(StartupManager.BuildCommand(@"D:\Other\CodexStatusbar.exe"), exe),
+            false);
+        Check(
+            "an absent Run value matches nothing",
+            StartupManager.PathMatches(null, exe),
+            false);
+        Check(
+            "the value name is the documented one",
+            StartupManager.ValueName,
+            "CodexStatusbar");
+        Check(
+            "the Run key is the HKCU one (no admin, no HKLM)",
+            StartupManager.RunKeyPath,
+            @"Software\Microsoft\Windows\CurrentVersion\Run");
+
+        // --- the reconcile decision table: first-run only, then the user's choice ---
+        Check(
+            "first run (never configured) registers itself",
+            StartupStatus.ResolveAction(false, false, null, exe),
+            StartupRegistryAction.Enable);
+        Check(
+            "after the user turned it off, a later launch never re-enables it",
+            StartupStatus.ResolveAction(true, false, null, exe),
+            StartupRegistryAction.None);
+        Check(
+            "a user who turned it off gets a stale value deleted",
+            StartupStatus.ResolveAction(true, false, StartupManager.BuildCommand(exe), exe),
+            StartupRegistryAction.Disable);
+        Check(
+            "a user who left it on gets a missing value re-registered",
+            StartupStatus.ResolveAction(true, true, null, exe),
+            StartupRegistryAction.Enable);
+        Check(
+            "a matching registration is left untouched",
+            StartupStatus.ResolveAction(true, true, StartupManager.BuildCommand(exe), exe),
+            StartupRegistryAction.None);
+        Check(
+            "a registration pointing at the old directory is repaired",
+            StartupStatus.ResolveAction(
+                true,
+                true,
+                StartupManager.BuildCommand(@"C:\Old\CodexStatusbar.exe"),
+                exe),
+            StartupRegistryAction.RepairPath);
+        Check(
+            "first run with an already-correct value writes nothing",
+            StartupStatus.ResolveAction(false, false, StartupManager.BuildCommand(exe), exe),
+            StartupRegistryAction.None);
+
+        // --- the attach ladder ---
+        Check("the first attach attempt is immediate", LifecycleRules.DelayForAttempt(0), 0);
+        Check("the second waits 250 ms", LifecycleRules.DelayForAttempt(1), 250);
+        Check("the third waits 500 ms", LifecycleRules.DelayForAttempt(2), 500);
+        Check("the fourth waits 1 s", LifecycleRules.DelayForAttempt(3), 1000);
+        Check("the fifth waits 2 s", LifecycleRules.DelayForAttempt(4), 2000);
+        Check("and it stays at 2 s instead of spinning", LifecycleRules.DelayForAttempt(50), 2000);
+        Check("a negative attempt index is harmless", LifecycleRules.DelayForAttempt(-1), 0);
+        Check(
+            "attaching completes once the IPC route resolved a conversation",
+            LifecycleRules.IsAttachComplete(true, true, false),
+            true);
+        Check(
+            "attaching completes once the composer reference was found",
+            LifecycleRules.IsAttachComplete(false, false, true),
+            true);
+        Check(
+            "a connected pipe with no conversation yet is not attached",
+            LifecycleRules.IsAttachComplete(true, false, false),
+            false);
+        Check(
+            "nothing ready is not attached",
+            LifecycleRules.IsAttachComplete(false, false, false),
+            false);
+        Check(
+            "waiting ticks slowly so an idle machine stays idle",
+            LifecycleRules.TickIntervalFor(CodexLifecycleState.WaitingForCodex),
+            1000);
+        Check(
+            "attaching ticks at the ladder's resolution",
+            LifecycleRules.TickIntervalFor(CodexLifecycleState.Attaching),
+            250);
+        Check(
+            "the active state keeps the original 350 ms cadence",
+            LifecycleRules.TickIntervalFor(CodexLifecycleState.Active),
+            350);
+
+        // --- settings v4 ---
+        var upgraded = OverlaySettings.ParseJson(
+            "{\"settingsVersion\":3,\"positionMode\":\"ComposerContextLeft\",\"contextGapDip\":10}");
+        Check(
+            "a v3 file upgrades to the current schema version",
+            upgraded.Settings.SettingsVersion,
+            OverlaySettings.CurrentSettingsVersion);
+        Check("a v3 file is rewritten once", upgraded.MustPersist, true);
+        Check(
+            "an upgraded file has not configured startup yet, so the default applies once",
+            upgraded.Settings.StartupConfigured,
+            false);
+        Check(
+            "and its startWithWindows is off until the coordinator decides",
+            upgraded.Settings.StartWithWindows,
+            false);
+
+        var turnedOff = OverlaySettings.ParseJson(
+            "{\"settingsVersion\":4,\"startWithWindows\":false,\"startupConfigured\":true}");
+        Check("a v4 file that turned it off stays off", turnedOff.Settings.StartWithWindows, false);
+        Check("and is already configured, so nothing re-enables it", turnedOff.Settings.StartupConfigured, true);
+        Check("a current file is not rewritten", turnedOff.MustPersist, false);
+
+        var turnedOn = OverlaySettings.ParseJson(
+            "{\"settingsVersion\":4,\"startWithWindows\":true,\"startupConfigured\":true}");
+        Check("a v4 file that turned it on stays on", turnedOn.Settings.StartWithWindows, true);
+        Check(
+            "the lifecycle keys are written back to disk",
+            turnedOn.Settings.Serialize().Contains("\"startWithWindows\"", StringComparison.Ordinal)
+                && turnedOn.Settings.Serialize().Contains("\"startupConfigured\"", StringComparison.Ordinal),
+            true);
+        Check(
+            "the serialised version is the current one",
+            OverlaySettings.ParseJson(turnedOn.Settings.Serialize()).Settings.SettingsVersion,
+            OverlaySettings.CurrentSettingsVersion);
+        Check(
+            "the previous position settings survived the version bump",
+            turnedOn.Settings.PositionMode,
+            OverlayPositionMode.ComposerContextLeft);
     }
 
     private static void Section(string title)

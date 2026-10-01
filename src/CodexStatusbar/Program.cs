@@ -14,6 +14,8 @@ internal sealed record CommandLineOptions(
     string? ForcedThreadId,
     bool Debug,
     bool NoOverlay,
+    bool Background,
+    bool RestartWait,
     int? DurationSeconds)
 {
     public static CommandLineOptions Parse(IReadOnlyList<string> args)
@@ -22,6 +24,8 @@ internal sealed record CommandLineOptions(
         string? threadId = null;
         var debug = false;
         var noOverlay = false;
+        var background = false;
+        var restartWait = false;
         int? durationSeconds = null;
 
         for (var index = 0; index < args.Count; index++)
@@ -34,6 +38,19 @@ internal sealed record CommandLineOptions(
             else if (argument.Equals("--no-overlay", StringComparison.OrdinalIgnoreCase))
             {
                 noOverlay = true;
+            }
+            else if (argument.Equals("--background", StringComparison.OrdinalIgnoreCase)
+                || argument.Equals("--watch-codex", StringComparison.OrdinalIgnoreCase))
+            {
+                // What the HKCU Run value launches: no visible window, tray only, and the overlay
+                // appears by itself when Codex does.
+                background = true;
+            }
+            else if (argument.Equals("--restart-wait", StringComparison.OrdinalIgnoreCase))
+            {
+                // Internal: the tray's "Restart Statusbar" relaunches this exe while the old process
+                // is still releasing the single-instance mutex.
+                restartWait = true;
             }
             else if (argument.Equals("--thread", StringComparison.OrdinalIgnoreCase))
             {
@@ -65,6 +82,8 @@ internal sealed record CommandLineOptions(
             threadId,
             debug,
             noOverlay,
+            background,
+            restartWait,
             durationSeconds);
     }
 
@@ -101,6 +120,13 @@ internal static class Program
             return ProbeRunner.LastExitCode;
         }
 
+        // Startup registration is a plain CLI action: it needs no overlay, no tray and no mutex, and
+        // it must stay usable from a script or a support session.
+        if (StartupCommandLine.TryRun(args, options.SettingsPath))
+        {
+            return StartupCommandLine.LastExitCode;
+        }
+
         if (options.NoOverlay)
         {
             return HeadlessRunner.Run(options);
@@ -110,11 +136,11 @@ internal static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
-        using var singleInstanceMutex = new Mutex(
-            initiallyOwned: true,
-            name: "Local\\CodexStatusbar",
-            createdNew: out var createdNew);
-        if (!createdNew)
+        // Single instance. A logon launch, a double-click and start-monitor.bat must never produce two
+        // overlays, two trays or two IPC consumers. The second process exits quietly — except when it
+        // is a deliberate restart, which waits for the outgoing process to release the name.
+        using var singleInstanceMutex = AcquireSingleInstance(options.RestartWait);
+        if (singleInstanceMutex is null)
         {
             return 0;
         }
@@ -123,9 +149,39 @@ internal static class Program
             options.SessionRoot,
             options.SettingsPath,
             new DebugDiagnostics(options.Debug),
-            options.ForcedThreadId));
+            options.ForcedThreadId,
+            options.Background));
         GC.KeepAlive(singleInstanceMutex);
         return 0;
+    }
+
+    /// <summary>Name of the single-instance object. <c>Local\</c>: one per logon session, no admin.</summary>
+    internal const string SingleInstanceMutexName = "Local\\CodexStatusbar.SingleInstance";
+
+    private static Mutex? AcquireSingleInstance(bool waitForRestart)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(waitForRestart ? 15 : 0);
+
+        while (true)
+        {
+            var mutex = new Mutex(
+                initiallyOwned: true,
+                name: SingleInstanceMutexName,
+                createdNew: out var createdNew);
+            if (createdNew)
+            {
+                return mutex;
+            }
+
+            mutex.Dispose();
+            if (DateTime.UtcNow >= deadline)
+            {
+                // Another instance owns the name. Nothing to do: it is already watching Codex.
+                return null;
+            }
+
+            Thread.Sleep(200);
+        }
     }
 }
 
@@ -242,18 +298,95 @@ internal sealed class CodexIpcActiveThreadMonitor : IDisposable
     private const string SourceClientId = "codex-statusbar";
 
     private readonly object _sync = new();
-    private readonly CancellationTokenSource _cancellation = new();
     private readonly Dictionary<string, ActiveConversation> _activeByWindow = new(StringComparer.Ordinal);
-    private readonly Task _runner;
+    private CancellationTokenSource? _cancellation;
+    private Task? _runner;
     private string? _activeThreadId;
     private string? _lastError;
     private bool _isConnected;
     private long _sequence;
     private long _version;
 
+    /// <summary>
+    /// Constructs the monitor without connecting. The pipe is only worth opening while Codex is
+    /// running — an idle reconnect loop against a pipe that does not exist is exactly the background
+    /// cost this project refuses to pay when Codex is closed.
+    /// </summary>
     public CodexIpcActiveThreadMonitor()
     {
-        _runner = Task.Run(() => RunAsync(_cancellation.Token));
+    }
+
+    /// <summary>True while the reader task is running.</summary>
+    public bool IsRunning
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _runner is not null;
+            }
+        }
+    }
+
+    /// <summary>Starts the reader if it is not already running. Idempotent.</summary>
+    public void Start()
+    {
+        lock (_sync)
+        {
+            if (_runner is not null)
+            {
+                return;
+            }
+
+            _cancellation = new CancellationTokenSource();
+            var token = _cancellation.Token;
+            _runner = Task.Run(() => RunAsync(token));
+        }
+    }
+
+    /// <summary>
+    /// Stops the reader and clears every conversation it had resolved, so a later Codex start can
+    /// never inherit a stale thread id or connection state.
+    /// </summary>
+    public void Stop()
+    {
+        CancellationTokenSource? cancellation;
+        Task? runner;
+        lock (_sync)
+        {
+            cancellation = _cancellation;
+            runner = _runner;
+            _cancellation = null;
+            _runner = null;
+        }
+
+        try
+        {
+            cancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already torn down.
+        }
+
+        try
+        {
+            runner?.Wait(TimeSpan.FromSeconds(2));
+        }
+        catch (AggregateException)
+        {
+            // Cancelling the background reader during a detach is normal.
+        }
+
+        cancellation?.Dispose();
+
+        // Reset the observable state and drop the resolved conversation.
+        lock (_sync)
+        {
+            _lastError = null;
+        }
+
+        MarkDisconnected(null);
     }
 
     /// <summary>
@@ -560,17 +693,7 @@ internal sealed class CodexIpcActiveThreadMonitor : IDisposable
             return;
         }
 
-        _cancellation.Cancel();
-        try
-        {
-            _runner.Wait(TimeSpan.FromSeconds(2));
-        }
-        catch (AggregateException)
-        {
-            // Cancelling the background reader during shutdown is normal.
-        }
-
-        _cancellation.Dispose();
+        Stop();
     }
 
     private int _disposed;
@@ -1092,6 +1215,7 @@ internal static class HeadlessRunner
     public static int Run(CommandLineOptions options)
     {
         using var routeMonitor = new CodexIpcActiveThreadMonitor();
+        routeMonitor.Start();
         using var monitor = new TokenLogMonitor(options.SessionRoot);
         var diagnostics = new DebugDiagnostics(options.Debug);
 

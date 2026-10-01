@@ -113,6 +113,110 @@ internal sealed class DebugDiagnostics
     }
 
     /// <summary>
+    /// One timestamped lifecycle line, e.g. <c>[12:03:18] Codex process detected PID=12345</c>. These
+    /// are appended as they happen rather than folded into a block, because the ordering across a
+    /// Codex start is the thing being diagnosed.
+    /// </summary>
+    public void Event(string message)
+    {
+        if (!Enabled || string.IsNullOrWhiteSpace(message))
+        {
+            return;
+        }
+
+        AppendRaw($"[{DateTime.Now:HH:mm:ss}] {message}");
+    }
+
+    /// <summary>
+    /// Appends the <c>[lifecycle]</c> section: which mode the process is in, whether it is the
+    /// primary instance, what Windows will launch at logon, and where the watcher currently is. Like
+    /// <c>[position]</c> it is its own block with a colon-free header, so readers of the metric block
+    /// are unaffected.
+    /// </summary>
+    public void WriteLifecycle(string body)
+    {
+        if (!Enabled || string.IsNullOrWhiteSpace(body))
+        {
+            return;
+        }
+
+        AppendRaw(Environment.NewLine + "[lifecycle]" + Environment.NewLine + body + Environment.NewLine);
+    }
+
+    /// <summary>
+    /// Everything the <c>[lifecycle]</c> block needs. Gathered by the caller because it owns the
+    /// watcher, the registry and the overlay; kept as plain values so this type stays free of them.
+    /// </summary>
+    internal readonly record struct LifecycleReport(
+        string Mode,
+        string SingleInstance,
+        string StartupRegistration,
+        string StartupCommand,
+        string WatcherState,
+        bool CodexDetected,
+        int CodexProcessId,
+        string Package,
+        string CodexVersion,
+        long CodexWindowHandle,
+        int AttachAttempt,
+        bool IpcConnected,
+        bool SessionReady,
+        bool UiaReady,
+        bool OverlayVisible,
+        string DetectionRule,
+        long DetectCount,
+        double MillisecondsSinceDetect,
+        long ErrorCount,
+        string? WatcherError);
+
+    public static string BuildLifecycle(LifecycleReport report)
+    {
+        var builder = new StringBuilder();
+        Append(builder, "Mode:", report.Mode);
+        Append(builder, "Single instance:", report.SingleInstance);
+        Append(builder, "Startup registration:", report.StartupRegistration);
+        Append(builder, "Startup command:", report.StartupCommand);
+        Append(builder, "Watcher state:", report.WatcherState);
+        Append(
+            builder,
+            "Codex detected:",
+            report.CodexDetected ? $"true (PID {report.CodexProcessId})" : "false");
+        Append(
+            builder,
+            "Codex PID:",
+            report.CodexDetected ? report.CodexProcessId.ToString(CultureInfo.InvariantCulture) : "--");
+        Append(builder, "Package:", report.CodexDetected ? report.Package : "--");
+        Append(builder, "Codex version:", report.CodexDetected ? report.CodexVersion : "--");
+        Append(
+            builder,
+            "Codex HWND:",
+            report.CodexDetected && report.CodexWindowHandle != 0
+                ? report.CodexWindowHandle.ToString("X", CultureInfo.InvariantCulture)
+                : "--");
+        Append(builder, "Attach attempt:", report.AttachAttempt.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "IPC:", report.IpcConnected ? "connected" : "waiting");
+        Append(builder, "Session:", report.SessionReady ? "ready" : "waiting");
+        Append(builder, "UIA:", report.UiaReady ? "ready" : "waiting");
+        Append(builder, "Overlay:", report.OverlayVisible ? "visible" : "hidden");
+        Append(builder, "Detection rule:", string.IsNullOrWhiteSpace(report.DetectionRule) ? "--" : report.DetectionRule);
+        // A heartbeat: a watcher thread that has stopped detecting shows up here as a growing age
+        // instead of as a strip that quietly never comes back.
+        Append(
+            builder,
+            "Detections:",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"{report.DetectCount} (last {report.MillisecondsSinceDetect:0} ms ago)"));
+        Append(
+            builder,
+            "Watcher error:",
+            string.IsNullOrWhiteSpace(report.WatcherError)
+                ? "none"
+                : $"{report.WatcherError} ({report.ErrorCount} total)");
+        return builder.ToString().TrimEnd();
+    }
+
+    /// <summary>
     /// Everything the <c>[position]</c> block needs about a composer-docked placement. Computed by the
     /// caller because only it knows the layout ladder's resolved numbers; kept as a plain record so this
     /// type stays free of UI Automation.

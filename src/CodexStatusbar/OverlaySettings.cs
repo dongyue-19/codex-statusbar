@@ -147,6 +147,10 @@ internal sealed class OverlaySettings
         public double? ContextGapDip { get; set; }
         public bool? TextShadow { get; set; }
 
+        // --- v4: lifecycle / start with Windows ---
+        public bool? StartWithWindows { get; set; }
+        public bool? StartupConfigured { get; set; }
+
         // --- v1 layout keys, still written for backward compatibility ---
         public int? AnchorMode { get; set; }
         public int? VisibleFields { get; set; }
@@ -164,7 +168,7 @@ internal sealed class OverlaySettings
         public double? OffsetYDip { get; set; }
     }
 
-    public const int CurrentSettingsVersion = 3;
+    public const int CurrentSettingsVersion = 4;
 
     /// <summary>
     /// The gap between the strip's right edge and the Context indicator's left edge, in DIP. The
@@ -203,6 +207,19 @@ internal sealed class OverlaySettings
 
     /// <summary>Absolute screen position, in physical pixels, used only by <see cref="OverlayPositionMode.FixedScreen"/>.</summary>
     public Point FixedScreenPosition { get; set; }
+
+    /// <summary>
+    /// The user's intent for "Start with Windows". The registry is only ever made to agree with this
+    /// value, so unchecking the tray item once is permanent until the user checks it again.
+    /// </summary>
+    public bool StartWithWindows { get; set; }
+
+    /// <summary>
+    /// Whether the first-run default has already been applied. Kept separately from
+    /// <see cref="StartWithWindows"/> because "never configured" and "explicitly turned off" both
+    /// read as <c>false</c>, and only the former may be opted in on the user's behalf.
+    /// </summary>
+    public bool StartupConfigured { get; set; }
 
     public static OverlaySettings CreateDefault()
     {
@@ -304,6 +321,13 @@ internal sealed class OverlaySettings
                 persisted.FixedScreenX ?? 0,
                 persisted.FixedScreenY ?? 0);
 
+            // v4: lifecycle. Both fields stay as written; the first-run opt-in is applied by
+            // StartupCoordinator at launch, which is the only place that can also see the registry.
+            // An absent `startupConfigured` means "never configured", including for a v3 file being
+            // upgraded — and that is exactly the case that gets the default-on treatment once.
+            settings.StartWithWindows = persisted.StartWithWindows ?? false;
+            settings.StartupConfigured = persisted.StartupConfigured ?? false;
+
             // Migration. A v2 file always wrote `positionMode`, and v2's default was FollowCodex, so
             // an explicit choice of FollowCodex is indistinguishable from never having touched it.
             // v3's default is docking, so a v2 file still on the old default is upgraded; an
@@ -345,6 +369,10 @@ internal sealed class OverlaySettings
             // v3: composer docking.
             ContextGapDip = SanitizeContextGap(ContextGapDip),
             TextShadow = TextShadow,
+
+            // v4: lifecycle.
+            StartWithWindows = StartWithWindows,
+            StartupConfigured = StartupConfigured,
 
             // v1 keys, kept so an older build can still read this file.
             AnchorMode = (int)SanitizeAnchorMode((int)AnchorMode),

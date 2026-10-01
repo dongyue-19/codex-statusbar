@@ -7,11 +7,18 @@
     <Nullable>enable</Nullable>
     <AssemblyName>CodexStatusbar</AssemblyName>
     <RootNamespace>CodexStatusbar</RootNamespace>
-    <Version>1.0.0-rc1</Version>
+    <Version>1.0.0-rc2</Version>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <Product>CodexStatusbar</Product>
     <Copyright>MIT licensed</Copyright>
+    <!--
+      The informational version is the release version and nothing else. The SDK otherwise appends
+      "+<commit>" from the working tree, which makes every rebuild of the same source report a
+      different version and ties a published binary to a commit that cannot be verified from the
+      file. The release is identified by its version and its SHA-256.
+    -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>soleillevant0125; CodexStatusbar contributors</Authors>
     <Description>A read-only 3-metric Windows status strip (TPS / total tokens / cache hit) for Codex Desktop.</Description>
     <RepositoryUrl>https://github.com/dongyue-19/codex-statusbar</RepositoryUrl>

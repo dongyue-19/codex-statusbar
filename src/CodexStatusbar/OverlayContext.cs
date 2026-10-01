@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace CodexStatusbar;
@@ -6,7 +7,21 @@ internal sealed class OverlayContext : ApplicationContext
 {
     private readonly OverlaySettings _settings;
     private readonly CodexIpcActiveThreadMonitor _routeMonitor = new();
-    private readonly TokenLogMonitor _monitor;
+    private readonly CodexProcessWatcher _watcher;
+    private readonly LifecycleController _lifecycle;
+    private readonly bool _background;
+    private readonly string _modeLabel;
+    private readonly string _sessionRoot;
+    private readonly string _executablePath;
+    private TokenLogMonitor? _monitor;
+    private string _startupOutcome = "not evaluated";
+    private bool _startupRegistryEnabled;
+    private ToolStripMenuItem _statusCodexItem = null!;
+    private ToolStripMenuItem _statusBarItem = null!;
+    private ToolStripMenuItem _startWithWindowsItem = null!;
+    private string _lifecycleMenuText = string.Empty;
+    private CodexProcessInfo _lastLoggedCodex = CodexProcessInfo.None;
+    private DateTime _lastLifecycleBlockUtc = DateTime.MinValue;
     private readonly TokenStripForm _form = new();
     private readonly AttachmentTargetHighlightForm _targetHighlight = new();
     private readonly OverlayThemeBinding _themeBinding;
@@ -71,25 +86,41 @@ internal sealed class OverlayContext : ApplicationContext
         string sessionRoot,
         string? settingsPath = null,
         DebugDiagnostics? debug = null,
-        string? forcedThreadId = null)
+        string? forcedThreadId = null,
+        bool background = false)
     {
         _settingsPath = settingsPath;
         _debug = debug ?? new DebugDiagnostics(false);
         _forcedThreadId = forcedThreadId;
-        _monitor = new TokenLogMonitor(sessionRoot);
-        if (!string.IsNullOrWhiteSpace(forcedThreadId))
-        {
-            _monitor.PinActiveSession = true;
-            _monitor.PreferredThreadId = forcedThreadId;
-        }
+        _background = background;
+        _modeLabel = background ? "background" : "interactive";
+        _sessionRoot = sessionRoot;
+        _executablePath = StartupCommandLine.ResolveExecutablePath();
 
         _settings = OverlaySettings.Load(_settingsPath);
+
+        // "Start with Windows" is reconciled once per launch, here, in both modes. This is what makes
+        // the first run of this build opt in, and what upgrades a stale Run path after the exe moves.
+        ApplyStartupRegistration();
+
+        _lifecycle = new LifecycleController(_debug);
+        _lifecycle.AttachRequested += AttachSubsystems;
+        _lifecycle.DetachRequested += DetachSubsystems;
+        _watcher = new CodexProcessWatcher();
+        _watcher.Changed += OnCodexProcessChanged;
+        _debug.Event($"watcher started · mode {_modeLabel} · primary instance");
+
+        // §10: detect an already-running Codex before the first tick, so starting the watcher while
+        // Codex is open attaches immediately instead of waiting for a future process-start event.
+        _watcher.DetectNow();
+
         _dockTracker = new ComposerDockTracker(
             () => _currentTarget?.HostWindow.Handle ?? IntPtr.Zero)
         {
-            // Only paid for when the strip is actually docked: UI Automation makes Codex build its
-            // accessibility tree, which is not free, so the manual mode must not keep asking.
-            Enabled = _settings.PositionMode == OverlayPositionMode.ComposerContextLeft
+            // Off until the lifecycle attaches. Voting the accessibility tree is only worthwhile once
+            // there is a Codex conversation to dock to; while waiting this stays silent so an idle
+            // machine does no UIA work at all.
+            Enabled = false
         };
         _dockTracker.Start();
         _presentation = OverlayPresentationBuilder.CreateWaiting(
@@ -104,12 +135,27 @@ internal sealed class OverlayContext : ApplicationContext
             ApplyTheme);
 
         var menu = new ContextMenuStrip();
+
+        // Lifecycle status first: with the watcher running these two lines answer "is Codex up, and is
+        // the strip attached to it" without opening the debug log.
+        _statusCodexItem = new ToolStripMenuItem("Codex：检测中…") { Enabled = false };
+        _statusBarItem = new ToolStripMenuItem("状态条：启动中…") { Enabled = false };
+        var statusMenu = new ToolStripMenuItem("Status  ·  状态");
+        statusMenu.DropDownItems.Add(_statusCodexItem);
+        statusMenu.DropDownItems.Add(_statusBarItem);
+        menu.Items.Add(statusMenu);
+        menu.Items.Add(new ToolStripSeparator());
+
         _sessionMenuItem = new ToolStripMenuItem("会话：等待数据") { Enabled = false };
         menu.Items.Add(_sessionMenuItem);
         _pinSessionMenuItem = new ToolStripMenuItem("锁定当前会话") { Enabled = false, CheckOnClick = true };
         _pinSessionMenuItem.CheckedChanged += (_, _) =>
         {
-            _monitor.PinActiveSession = _pinSessionMenuItem.Checked;
+            if (_monitor is { } monitor)
+            {
+                monitor.PinActiveSession = _pinSessionMenuItem.Checked;
+            }
+
             _pinSessionMenuItem.Text = _pinSessionMenuItem.Checked ? "已锁定当前会话" : "锁定当前会话";
         };
         menu.Items.Add(_pinSessionMenuItem);
@@ -235,6 +281,25 @@ internal sealed class OverlayContext : ApplicationContext
             }
         };
         menu.Items.Add(_visibilityMenuItem);
+
+        // Lifecycle controls. "Start with Windows" is a toggle onto HKCU\...\Run — no elevation, and
+// the state shown is the registry's, not an intention.
+        _startWithWindowsItem = new ToolStripMenuItem("Start with Windows  ·  开机自动启动")
+        {
+            CheckOnClick = true,
+            Checked = _startupRegistryEnabled
+        };
+        _startWithWindowsItem.CheckedChanged += (_, _) => ToggleStartWithWindows(_startWithWindowsItem.Checked);
+        menu.Items.Add(_startWithWindowsItem);
+
+        var attachNowItem = new ToolStripMenuItem("Start / Attach now  ·  立即检测并附着");
+        attachNowItem.Click += (_, _) => AttachNow();
+        menu.Items.Add(attachNowItem);
+
+        var restartItem = new ToolStripMenuItem("Restart Statusbar  ·  重启状态条");
+        restartItem.Click += (_, _) => RestartOverlay();
+        menu.Items.Add(restartItem);
+        menu.Items.Add(new ToolStripSeparator());
 
         var exitItem = new ToolStripMenuItem("退出");
         exitItem.Click += (_, _) => ExitOverlay();
@@ -539,10 +604,306 @@ internal sealed class OverlayContext : ApplicationContext
         }
     }
 
+    /// <summary>
+    /// Reconciles <c>HKCU\...\Run</c> with the settings once per launch. The first launch of a build
+    /// that has this feature opts in; every later launch only enforces what the user chose, and
+    /// repairs the registered path if the exe has moved.
+    /// </summary>
+    private void ApplyStartupRegistration()
+    {
+        if (_executablePath.Length == 0)
+        {
+            _startupRegistryEnabled = StartupManager.Read() is not null;
+            _startupOutcome = "startup registration: not evaluated (running under the .NET host)";
+            return;
+        }
+
+        var result = StartupCoordinator.Apply(_settings, _executablePath, out var changed);
+        _startupRegistryEnabled = result.RegistryEnabled;
+        _startupOutcome = "startup registration: " + result.Outcome
+            + (result.FirstRunOptIn ? " (first run; on by default, the tray can turn it off)" : string.Empty)
+            + (result.Error is { Length: > 0 } error ? " — " + error : string.Empty);
+        if (changed)
+        {
+            _settings.Save(_settingsPath);
+        }
+    }
+
+    /// <summary>
+    /// Logs the presence flips only. Which renderer happens to be the current anchor changes as Codex
+    /// shuts down its helper processes, and logging every one of those would bury the two lines that
+    /// matter; the anchor's PID is always visible in the <c>[lifecycle]</c> block anyway.
+    /// </summary>
+    private void OnCodexProcessChanged(CodexProcessInfo info)
+    {
+        var wasRunning = _lastLoggedCodex.IsRunning;
+        _lastLoggedCodex = info;
+
+        if (info.IsRunning && !wasRunning)
+        {
+            _debug.Event(
+                $"Codex process detected PID={info.ProcessId} package={info.Package} version={info.Version}");
+        }
+        else if (!info.IsRunning && wasRunning)
+        {
+            _debug.Event("Codex process exited");
+        }
+    }
+
+    /// <summary>
+    /// Starts the Codex-specific subsystems: the IPC reader, the rollout reader and (in dock mode)
+    /// the accessibility tracker. Called once per Codex process by the lifecycle and never while
+    /// Codex is absent — that is what keeps an unattended machine at essentially zero CPU.
+    /// </summary>
+    private void AttachSubsystems(CodexProcessInfo info)
+    {
+        _routeMonitor.Start();
+        _monitor ??= CreateMonitor();
+        _dockTracker.Enabled = _settings.PositionMode == OverlayPositionMode.ComposerContextLeft;
+
+        // Everything below belonged to a previous Codex process, or to none. Clearing it here is what
+        // makes "close Codex, open Codex again" behave exactly like a first attach: no old HWND, no
+        // old element, no old conversation, no old pipe state.
+        _currentTarget = null;
+        _lastDock = ComposerDockSnapshot.Empty;
+        _lastDockReferenceRect = default;
+        _lastSnapshot = null;
+        _pendingSnapshot = null;
+        _pendingSessionVersion = -1;
+        _observedSessionVersion = -1;
+        _pendingThreadId = null;
+        _observedThreadId = null;
+        _pendingRouteStatus = new ActiveThreadRouteStatus(null, 0, false, 0, null);
+        _observedRouteVersion = -1;
+        _lastPositionSignature = null;
+        _pinSessionMenuItem.Enabled = false;
+        _pinSessionMenuItem.Checked = false;
+        _interaction.CollapseForHostChange();
+        StopOutsideClickPolling();
+        _form.Hide();
+        RefreshPresentation();
+        UpdateSessionMenuText();
+
+        _debug.Event(
+            $"subsystems started: ipc reader, rollout reader, dock tracker={(_dockTracker.Enabled ? "on" : "off")}");
+        WriteLifecycleBlock();
+    }
+
+    private TokenLogMonitor CreateMonitor()
+    {
+        var monitor = new TokenLogMonitor(_sessionRoot);
+        if (!string.IsNullOrWhiteSpace(_forcedThreadId))
+        {
+            monitor.PinActiveSession = true;
+            monitor.IsForcedPin = true;
+            monitor.PreferredThreadId = _forcedThreadId;
+        }
+
+        return monitor;
+    }
+
+    /// <summary>
+    /// Stops every Codex-specific subsystem and hides the strip, without touching the watcher: the
+    /// next Codex start must find a clean slate, and this process stays alive waiting for it.
+    /// </summary>
+    private void DetachSubsystems()
+    {
+        _dockTracker.Enabled = false;
+        _routeMonitor.Stop();
+        _monitor?.Dispose();
+        _monitor = null;
+        CollapseAndHide();
+        _currentTarget = null;
+        _lastDock = ComposerDockSnapshot.Empty;
+        _lastDockReferenceRect = default;
+        _lastSnapshot = null;
+        _pendingSnapshot = null;
+        _pendingThreadId = null;
+        _observedThreadId = null;
+        _pendingSessionVersion = -1;
+        _observedSessionVersion = -1;
+        _pendingRouteStatus = new ActiveThreadRouteStatus(null, 0, false, 0, null);
+        _observedRouteVersion = -1;
+        _lastPositionSignature = null;
+        _pinSessionMenuItem.Enabled = false;
+        RefreshPresentation();
+        _trayIcon.Text = TrimTrayText("Codex Statusbar — Waiting for Codex");
+        _debug.Event("subsystems stopped · overlay hidden");
+        WriteLifecycleBlock();
+    }
+
+    private void ApplyLifecycleTickInterval()
+    {
+        var interval = LifecycleRules.TickIntervalFor(_lifecycle.State);
+        if (_timer.Interval != interval)
+        {
+            _timer.Interval = interval;
+        }
+    }
+
+    private void UpdateLifecycleMenuText()
+    {
+        var codex = _watcher.Current;
+        var codexText = codex.IsRunning
+            ? $"Codex：运行中 · PID {codex.ProcessId} · {codex.Package}"
+            : "Codex：未运行";
+        var barText = "状态条：" + _lifecycle.StateSummary
+            + (_lifecycle.State == CodexLifecycleState.Attaching
+                ? $"（第 {_lifecycle.AttachAttempt} 次尝试）"
+                : string.Empty);
+
+        var signature = codexText + "\u001f" + barText;
+        if (signature == _lifecycleMenuText)
+        {
+            return;
+        }
+
+        _lifecycleMenuText = signature;
+        _statusCodexItem.Text = codexText;
+        _statusBarItem.Text = barText;
+
+        // Only when there is no metric to show: once a conversation is readable the tooltip carries
+        // the conversation id and its token count instead, which is more useful than the state name.
+        if (_lastSnapshot is null)
+        {
+            _trayIcon.Text = TrimTrayText(
+                codex.IsRunning ? "Codex Statusbar — Active" : "Codex Statusbar — Waiting for Codex");
+        }
+    }
+
+    private void WriteLifecycleBlock()
+    {
+        if (!_debug.Enabled)
+        {
+            return;
+        }
+
+        var codex = _watcher.Current;
+        _debug.WriteLifecycle(DebugDiagnostics.BuildLifecycle(new DebugDiagnostics.LifecycleReport(
+            _modeLabel,
+            "primary",
+            _startupRegistryEnabled ? "enabled" : "disabled",
+            _executablePath.Length > 0 ? StartupManager.BuildCommand(_executablePath) : "(unknown exe)",
+            _lifecycle.StateName,
+            codex.IsRunning,
+            codex.ProcessId,
+            codex.Package,
+            codex.Version,
+            _currentTarget?.HostWindow.Handle ?? IntPtr.Zero,
+            _lifecycle.AttachAttempt,
+            _lifecycle.IpcConnected,
+            _lifecycle.SessionReady,
+            _lifecycle.UiaReady,
+            _form.Visible,
+            _watcher.LastDecision,
+            _watcher.DetectCount,
+            _watcher.MillisecondsSinceLastDetect,
+            _watcher.ErrorCount,
+            _watcher.LastError)));
+    }
+
+    private void ToggleStartWithWindows(bool enabled)
+    {
+        if (_executablePath.Length == 0)
+        {
+            _startWithWindowsItem.Checked = _startupRegistryEnabled;
+            return;
+        }
+
+        var result = StartupCoordinator.SetEnabled(_settings, _executablePath, enabled);
+        _settings.Save(_settingsPath);
+        _startupRegistryEnabled = result.RegistryEnabled;
+        _startupOutcome = "startup registration: " + result.Outcome
+            + (result.Error is { Length: > 0 } error ? " — " + error : string.Empty);
+        _debug.Event(_startupOutcome);
+
+        if (_startWithWindowsItem.Checked != result.RegistryEnabled)
+        {
+            _startWithWindowsItem.Checked = result.RegistryEnabled;
+        }
+
+        UpdateLifecycleMenuText();
+        WriteLifecycleBlock();
+    }
+
+    private void AttachNow()
+    {
+        _debug.Event("manual attach requested from the tray");
+        _watcher.DetectNow();
+        _lifecycle.RequestImmediateAttach();
+        Tick();
+    }
+
+    private void RestartOverlay()
+    {
+        _debug.Event("restart requested from the tray");
+        var executable = _executablePath.Length > 0 ? _executablePath : Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executable))
+        {
+            return;
+        }
+
+        try
+        {
+            var arguments = Environment.GetCommandLineArgs()
+                .Skip(1)
+                .Where(argument => !argument.Equals("--restart-wait", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            arguments.Add("--restart-wait");
+            Process.Start(new ProcessStartInfo(executable, string.Join(' ', arguments))
+            {
+                UseShellExecute = false
+            });
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception
+            or IOException or InvalidOperationException)
+        {
+            _debug.Event("restart failed: " + exception.Message);
+            return;
+        }
+
+        ExitOverlay();
+    }
+
     private void Tick()
     {
         if (Volatile.Read(ref _disposed) != 0)
         {
+            return;
+        }
+
+        _lifecycle.OverlayVisible = _form.Visible;
+
+        // The lifecycle decides first whether anything Codex-specific runs at all this tick. While
+        // Codex is absent this is the entire tick: a process check, two tray labels and a return.
+        var previousState = _lifecycle.State;
+        var nowUtc = DateTime.UtcNow;
+        _lifecycle.Observe(
+            _watcher.Current,
+            ipcConnected: _pendingRouteStatus.IsConnected,
+            sessionReady: !string.IsNullOrWhiteSpace(_pendingThreadId)
+                || _monitor?.ActiveThreadId is not null,
+            uiaReady: _dockTracker.Latest.Source != ComposerReferenceSource.None,
+            nowUtc: nowUtc);
+        ApplyLifecycleTickInterval();
+        UpdateLifecycleMenuText();
+        if (_lifecycle.State != previousState)
+        {
+            WriteLifecycleBlock();
+            _lastLifecycleBlockUtc = nowUtc;
+        }
+        else if (nowUtc - _lastLifecycleBlockUtc > TimeSpan.FromSeconds(10))
+        {
+            // A periodic block even when nothing changes: the "Detections" heartbeat line is how a
+            // stalled watcher becomes visible in the log instead of looking like a healthy idle one.
+            WriteLifecycleBlock();
+            _lastLifecycleBlockUtc = nowUtc;
+        }
+
+        if (!_lifecycle.SubsystemsRunning)
+        {
+            // WAITING_FOR_CODEX: no IPC reconnect loop, no rollout scan, no UIA, no Codex theme poll.
+            _dockTracker.Enabled = false;
             return;
         }
 
@@ -649,26 +1010,35 @@ internal sealed class OverlayContext : ApplicationContext
             return;
         }
 
+        // No rollout reader means no Codex is attached: there is nothing to scan and no state_5.sqlite
+        // query worth making. Release the guard so the next attached tick can poll.
+        var monitor = _monitor;
+        if (monitor is null || !_lifecycle.SubsystemsRunning)
+        {
+            Interlocked.Exchange(ref _pollInFlight, 0);
+            return;
+        }
+
         var uiScheduler = TaskScheduler.FromCurrentSynchronizationContext();
         _ = Task.Run(() =>
             {
                 var routeStatus = _routeMonitor.GetStatus();
-                if (!_monitor.PinActiveSession)
+                if (!monitor.PinActiveSession)
                 {
                     if (!string.IsNullOrWhiteSpace(routeStatus.ThreadId))
                     {
-                        _monitor.PreferredThreadId = routeStatus.ThreadId;
+                        monitor.PreferredThreadId = routeStatus.ThreadId;
                     }
                     else if (!routeStatus.IsConnected)
                     {
-                        _monitor.PreferredThreadId = null;
+                        monitor.PreferredThreadId = null;
                     }
                 }
-                var snapshot = _monitor.Poll();
+                var snapshot = monitor.Poll();
                 return (
                     Snapshot: snapshot,
-                    Version: _monitor.ActiveSessionVersion,
-                    ThreadId: _monitor.ActiveThreadId,
+                    Version: monitor.ActiveSessionVersion,
+                    ThreadId: monitor.ActiveThreadId,
                     RouteStatus: routeStatus);
             })
             .ContinueWith(task =>
@@ -1600,6 +1970,9 @@ internal sealed class OverlayContext : ApplicationContext
 
     private void ExitOverlay()
     {
+        // Exit means "stop for this session", never "uninstall". The HKCU Run value is left exactly as
+        // it is, so the next logon starts the watcher again unless the user turned that off.
+        _debug.Event("exit requested from the tray (startup registration left unchanged)");
         if (_manualAttachment.IsEditing)
         {
             CancelManualEditing(restoreFocus: false, relayout: false);
@@ -1629,8 +2002,9 @@ internal sealed class OverlayContext : ApplicationContext
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
             _hotkey.Dispose();
+            _watcher.Dispose();
             _routeMonitor.Dispose();
-            _monitor.Dispose();
+            _monitor?.Dispose();
             DisposeThemeAndForms();
         }
         base.Dispose(disposing);
