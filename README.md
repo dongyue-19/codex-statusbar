@@ -3,6 +3,10 @@
 <https://github.com/dongyue-19/codex-statusbar> · MIT licensed · **v1.0.0-rc1** (release candidate,
 feature-frozen)
 
+**English** · [简体中文](README.zh-CN.md)
+
+![CodexStatusbar docked in Codex's composer toolbar, immediately left of the Context usage indicator](docs/images/docked-strip.png)
+
 **Get the binary:** download `CodexStatusbar.exe` from the
 [latest release](https://github.com/dongyue-19/codex-statusbar/releases) — a self-contained 61 MB
 single file, no .NET runtime needed — drop it next to `start-monitor.bat` and run that. The exe is
@@ -18,9 +22,11 @@ Windows**. It shows three numbers, directly, without any click:
 ⚡ 243 tok/s   ·   5.7M tok   ·   Cache 98%
 ```
 
-It floats over Codex's own chrome with a fully transparent background — text only, no capsule — and
-pins to any of nine anchors of the Codex window with a DPI-aware offset that survives resizing,
-maximising and moving.
+By default it docks **inside Codex's own composer toolbar** — immediately left of the Context usage
+indicator, on the same line as the model selector, microphone and send button. It draws text only
+on a fully transparent background, so it reads as part of Codex's chrome rather than as a HUD, and
+when the toolbar gets narrow it steps down to a shorter form instead of overlapping the controls to
+its left. A manual nine-anchor mode with a DPI-aware offset is still there as a fallback (§4).
 
 It is a **separate companion process**. It does not patch, replace, inject into, or hook the
 Codex binary. It reads data that Codex already writes, and it attaches a small overlay window
