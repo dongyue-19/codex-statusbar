@@ -35,11 +35,29 @@ internal static class SelfTest
         stdout.WriteLine("CodexStatusbar self-test");
         stdout.WriteLine("========================");
 
-        Section("carrier: token_usage_record (fixtures/fixture-modern.jsonl)");
-        RunModernFixture(Locate(fixturesDirectory, "fixture-modern.jsonl"), stdout);
+        var modernFixture = Locate(fixturesDirectory, "fixture-modern.jsonl");
+        var legacyFixture = Locate(fixturesDirectory, "fixture-legacy.jsonl");
 
-        Section("carrier: token_count only (fixtures/fixture-legacy.jsonl)");
-        RunLegacyFixture(Locate(fixturesDirectory, "fixture-legacy.jsonl"), stdout);
+        // A bare `--self-test` on the published single file has no fixtures beside it: they live in
+        // the repository. Say so and skip those two sections rather than failing, so the documented
+        // command exits 0 on a downloaded exe. Asking for a specific fixtures directory that cannot
+        // be satisfied is still a failure — that is a broken invocation, not a missing extra.
+        if (fixturesDirectory is null && (modernFixture is null || legacyFixture is null))
+        {
+            Console.Out.WriteLine();
+            Console.Out.WriteLine(
+                "  note: fixture-based sections skipped — no fixtures directory beside this exe.");
+            Console.Out.WriteLine(
+                "        Run with the repository's fixtures path (e.g. `--self-test fixtures`) for the full set.");
+        }
+        else
+        {
+            Section("carrier: token_usage_record (fixtures/fixture-modern.jsonl)");
+            RunModernFixture(modernFixture, stdout);
+
+            Section("carrier: token_count only (fixtures/fixture-legacy.jsonl)");
+            RunLegacyFixture(legacyFixture, stdout);
+        }
 
         Section("deduplication: the same usage must never be counted twice");
         RunDeduplication(stdout);

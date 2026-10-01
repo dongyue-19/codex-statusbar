@@ -640,7 +640,7 @@ CodexStatusbar.exe --hotkey-probe out.json      # Ctrl+Alt+Shift+P (fails by des
 ## 6. 自己验证这些数字
 
 ```
-CodexStatusbar.exe --self-test fixtures            # 246 checks over the production code
+CodexStatusbar.exe --self-test fixtures            # 246 checks over the production code (218 without fixtures)
 python tools\verify_metrics.py          # real conversations, raw vs derived
 python tools\make_fixtures.py           # deterministic fixtures + assertions
 python tools\verify_tail_recovery.py    # bounded-tail recovery == full parse
@@ -670,7 +670,7 @@ Codex 窗口，每次都把状态条的*真实*矩形与 `anchor + offset` 对�
   合并为 `10000` ms 而不是 `11000`；一个 5000 ms 的 `CommandExecution` 不改变结果；两种载体；
   五个重复计数场景；九个锚点与 3×3 区域规则；25 次缩放循环后保存的偏移不被改动；显示钳制永不
   写回；以及 `CodexThemeSource` 的 TOML 规则，包括针对本机真实 `config.toml` 的检查。
-  **246 checks，目前全部通过。**
+  **带 fixtures 为 246 checks、不带为 218 checks，目前全部通过。**
 * **`make_fixtures.py`** 写出 `fixtures\fixture-modern.jsonl` 与 `fixtures\fixture-legacy.jsonl`，
   并断言精确的期望值。TPS 固定装置（fixture）构造得让答案是精确的：Reasoning 4000 ms + AgentMessage
   3000 ms = 7000 ms 的模型输出，其间夹着一个**必须被排除的 5000 ms `CommandExecution`**；

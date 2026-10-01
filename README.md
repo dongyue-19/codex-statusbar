@@ -681,7 +681,7 @@ CodexStatusbar.exe --hotkey-probe out.json      # Ctrl+Alt+Shift+P (fails by des
 ## 6. Verifying the numbers yourself
 
 ```
-CodexStatusbar.exe --self-test fixtures            # 246 checks over the production code
+CodexStatusbar.exe --self-test fixtures            # 246 checks over the production code (218 without fixtures)
 python tools\verify_metrics.py          # real conversations, raw vs derived
 python tools\make_fixtures.py           # deterministic fixtures + assertions
 python tools\verify_tail_recovery.py    # bounded-tail recovery == full parse
@@ -713,7 +713,8 @@ maximises, restores and moves the Codex window and checks the strip's *real* rec
   a 5000 ms `CommandExecution` not changing the result; both carriers; five double-counting
   scenarios; the nine anchors and the 3×3 region rule; 25 resize cycles leaving the saved offset
   untouched; the display clamp never being written back; and the `CodexThemeSource` TOML rules
-  including against the real `config.toml` on this machine. **246 checks, currently all passing.**
+  including against the real `config.toml` on this machine. **246 checks with the fixtures, 218
+  without them, currently all passing.**
 * **`make_fixtures.py`** writes `fixtures\fixture-modern.jsonl` and `fixtures\fixture-legacy.jsonl`
   and asserts exact expected values. The TPS fixture is built so the answer is exact: Reasoning
   4000 ms + AgentMessage 3000 ms = 7000 ms of model output with a **5000 ms `CommandExecution`

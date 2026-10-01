@@ -1,20 +1,28 @@
 CodexStatusbar 1.0.0-rc2 — SHA-256
 =================================
 
-  88A3AF0384DE4197FAE4D83CE1D7BA63590196779B268E3844976AA4C4467663  CodexStatusbar.exe
+  C9F5BCC750B1441109B50194F7B7395AC8EA202966FE516AA013F32AA6E1371E  CodexStatusbar.exe
 
-Size           : 64,301,116 bytes (61.3 MB)
-Build time     : 2026-10-01 23:34:35 (+08:00)
-Product        : CodexStatusbar
-ProductVersion : 1.0.0-rc2
-FileVersion    : 1.0.0.0
+Size           : 64,301,275 bytes (61.3 MB)
+Binary version : 1.0.0-rc2
 Runtime        : self-contained win-x64 single file (no .NET runtime required)
-Self-test      : 246 checks, 0 failures (run `CodexStatusbar.exe --self-test`)
 
-Verify on Windows:
+Self-test (run it yourself):
+
+  CodexStatusbar.exe --self-test                 -> 218 checks, 0 failures, exit 0
+  CodexStatusbar.exe --self-test <fixtures dir>  -> 246 checks, 0 failures, exit 0
+
+The 28 fixture-based checks need the repository's `fixtures\` directory, so they are skipped with a
+note when the downloaded single file is run on its own. A fixtures path that does not exist is still
+a failure and exits 1.
+
+Verify the download on Windows:
 
   Get-FileHash .\CodexStatusbar.exe -Algorithm SHA256
 
 or
 
   certutil -hashfile CodexStatusbar.exe SHA256
+
+Reproducible: building this source tree with `dotnet publish` produces a byte-identical file, so the
+SHA-256 above is a property of the source, not of the machine that built it.
