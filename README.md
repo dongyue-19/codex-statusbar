@@ -809,3 +809,7 @@ codex app-server generate-json-schema --experimental --out docs\app-server-schem
 
 Everything else — the whole of `src\`, `tools\`, `fixtures\`, `docs\INVESTIGATION.md` and the
 measurement evidence — is in the tree and is what the numbers in this README were produced with.
+
+The attributions in §8 are also kept as a standalone notice in `THIRD-PARTY-NOTICES.md`, which is
+the file that carries the licence conditions; `LICENSE` is left as uninterrupted MIT text so GitHub
+identifies the project correctly.
