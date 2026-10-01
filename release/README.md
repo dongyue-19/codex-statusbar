@@ -193,6 +193,15 @@ budget for placement, and `Watcher state` / `Detection rule` / `Overlay` for the
 Codex update that changes its accessibility tree or its package identity shows up as a log line
 instead of a strip that mysteriously moved or vanished.
 
+### Measured cost
+
+| state | CPU (one core) | notes |
+|---|---|---|
+| Codex closed (`WAITING_FOR_CODEX`) | **0.03–0.14 %** | 2–4 scheduler ticks per 45 s sample; the resolution limit of the measurement |
+| Codex running (`ACTIVE`) | 0.07–1.3 % | the metric pipeline (incremental rollout parsing, IPC frames, a 250 ms UIA read), not the watcher |
+
+The watcher itself polls nothing while attached — `tools\verify_startup_and_resource.ps1` asserts that
+the `Detections` heartbeat stays frozen for the whole attached sample.
 ---
 
 ## 6. Turning it off

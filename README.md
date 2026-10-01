@@ -947,7 +947,7 @@ Codex that just started. Looking up one new PID costs a handle open plus one `Ge
 (~0.1 ms) and needs no name at all, because the package family name is the authoritative signal. The
 window enumeration is only reached once something *is* accepted.
 
-* **While Codex is absent**: ~0.1 ms every 2 s. Measured **0.03–0.10 % of one core**.
+* **While Codex is absent**: ~0.1 ms every 2 s. Measured **0.03–0.14 % of one core** across runs — 2 to 4 scheduler ticks per 45 s sample, which is the resolution limit of per-process CPU accounting.
 * **While Codex is present** the polling stops entirely: the watcher blocks on the process handle
   instead, so the attached state does no polling at all.
 * The state that lasts longest is also the cheapest: the UI timer drops from 350 ms to **1 s** and
