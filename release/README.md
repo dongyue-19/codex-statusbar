@@ -213,8 +213,9 @@ self-contained, so no .NET runtime is needed. No administrator rights, and nothi
 
 | command | what it does |
 |---|---|
-| `--self-test [fixturesDir]` | drives the real parser, formatter, position calculator, settings serialiser, identity rule and lifecycle ladder; **246 checks** with the repository's fixtures, **218** on a bare exe (the fixture sections are skipped with a note). Exit 0 on success |
-| `--debug` | writes the metric block, the `[position]` block, the `[lifecycle]` block and a timestamped event for every transition |
+| `--self-test [fixturesDir]` | drives the real parser, formatter, position calculator, settings serialiser, identity rule, lifecycle ladder and the position fast path; **296 checks** with the repository's fixtures, **268** on a bare exe (the fixture sections are skipped with a note). Exit 0 on success |
+| `--debug` | writes the metric block, the `[position]` block, the `[position-performance]` block, the `[lifecycle]` block and a timestamped event for every transition |
+| `--position-fast-debug` | implies `--debug` and summarises the position pipeline once a second instead of only when something changes |
 | `--background` / `--watch-codex` | the logon mode: tray only, no window |
 | `--install-startup` / `--uninstall-startup` / `--startup-status` | registry registration, removal, and a status dump. No admin |
 | `--no-overlay` | headless monitor, debug log only |
@@ -231,7 +232,13 @@ Live acceptance scripts in `tools\`:
 pwsh -File tools\verify_lifecycle_live.ps1      # close/open Codex, assert attach/detach each cycle
 pwsh -File tools\verify_startup_and_resource.ps1 # registry, single instance, logon launch, idle CPU
 pwsh -File tools\verify_composer_dock.ps1        # docking geometry against the live composer
+pwsh -File tools\verify_position_fastpath.ps1    # move/resize the real window, assert delta + counters + CPU
 ```
+
+`tools\verify_position_fastpath.ps1` drives the real Codex window a short distance and back, asserts
+against both the overlay's own `[position-performance]` counters and the strip's real window rectangle,
+measures the CPU cost in the production configuration, and restores the window geometry in a `finally`.
+It takes no screenshots: whether the tracking *looks* smooth is a human judgement.
 
 `--debug` prints the `Reference source`, the responsive level, the variant widths and the width
 budget for placement, and `Watcher state` / `Detection rule` / `Overlay` for the lifecycle — so a
@@ -243,7 +250,13 @@ instead of a strip that mysteriously moved or vanished.
 | state | CPU (one core) | notes |
 |---|---|---|
 | Codex closed (`WAITING_FOR_CODEX`) | **0.03–0.14 %** | 2–4 scheduler ticks per 45 s sample; the resolution limit of the measurement |
-| Codex running (`ACTIVE`) | 0.07–1.3 % | the metric pipeline (incremental rollout parsing, IPC frames, a 250 ms UIA read), not the watcher |
+| Codex running (`ACTIVE`), idle | **≈0.8 %** | the metric pipeline (incremental rollout parsing, IPC frames, a 250 ms UIA read). rc2 and rc3 measured back to back with the same method: 0.83 % vs 0.78 % |
+| Codex being dragged/resized | **+0 → ~4 %** | the whole process under a synthetic ~80 moves/s stream, back to ≈0 within seconds of the last move. The fast path itself is one `GetWindowRect` plus one position-only `SetWindowPos` per frame |
+
+Both builds occasionally spike far above that (20–30 %) while the accessibility ladder is degraded and
+the composer tracker is walking the tree once per poll as its safety net. That is pre-existing — it is
+reproducible on rc2 — and the position fast path explicitly refuses to amplify it: in exactly those
+windows its own counters report zero UI Automation traversals and zero window writes.
 
 The watcher itself polls nothing while attached — `tools\verify_startup_and_resource.ps1` asserts that
 the `Detections` heartbeat stays frozen for the whole attached sample.
@@ -266,7 +279,7 @@ the `Detections` heartbeat stays frozen for the whole attached sample.
 CodexStatusbar.exe --self-test
 ```
 
-Expected: `checks: 218   failures: 0` / `RESULT: PASS`, exit code 0 for the bare exe; 246 with the
+Expected: `checks: 268   failures: 0` / `RESULT: PASS`, exit code 0 for the bare exe; 296 with the
 repository's `fixtures\` directory. A fixtures path that does not exist is a failure and exits 1.
 
 ```
