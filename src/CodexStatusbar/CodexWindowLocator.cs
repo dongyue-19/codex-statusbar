@@ -593,6 +593,18 @@ internal static class CodexWindowLocator
         return true;
     }
 
+    /// <summary>
+    /// Exposed for the position fast path: when the host window merely changed shape, the strip's
+    /// placement has to be recomputed against the same caption-button rectangle the accurate path
+    /// would have used. Leaving it stale would misplace a title-bar-anchored strip by exactly the
+    /// distance the window was resized.
+    /// </summary>
+    internal static IntRect? TryReadCaptionButtonBounds(IntPtr windowHandle, IntRect windowBounds) =>
+        ReadCaptionButtonBounds(windowHandle, windowBounds);
+
+    /// <summary>Exposed for the position fast path, with the same fallback chain the locator uses.</summary>
+    internal static WindowChromeMetrics ReadChromeMetrics(uint dpi) => ReadChromeMetricsCore(dpi);
+
     private static IntRect? ReadCaptionButtonBounds(IntPtr windowHandle, IntRect windowBounds)
     {
         var result = DwmGetWindowAttribute(
@@ -642,7 +654,7 @@ internal static class CodexWindowLocator
         }
     }
 
-    private static WindowChromeMetrics ReadChromeMetrics(uint dpi)
+    private static WindowChromeMetrics ReadChromeMetricsCore(uint dpi)
     {
         try
         {

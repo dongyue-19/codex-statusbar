@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>CodexStatusbar</AssemblyName>
     <RootNamespace>CodexStatusbar</RootNamespace>
-    <Version>1.0.0-rc2</Version>
+    <Version>1.0.0-rc3</Version>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <Product>CodexStatusbar</Product>

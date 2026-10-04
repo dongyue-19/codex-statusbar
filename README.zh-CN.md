@@ -4,7 +4,7 @@
 
 ![CodexStatusbar 停靠在 Codex 输入框底栏、Context 指示器左侧](docs/images/docked-strip.png)
 
-<https://github.com/dongyue-19/codex-statusbar> · MIT 许可 · **v1.0.0-rc2**（release candidate，功能已冻结）
+<https://github.com/dongyue-19/codex-statusbar> · MIT 许可 · **v1.0.0-rc3**（release candidate，功能已冻结）
 
 **获取可执行文件：** 从 [最新 release](https://github.com/dongyue-19/codex-statusbar/releases) 下载
 `CodexStatusbar.exe` —— 自包含的 61 MB 单文件，不需要安装 .NET 运行时 —— 把它放到
@@ -640,7 +640,7 @@ CodexStatusbar.exe --hotkey-probe out.json      # Ctrl+Alt+Shift+P (fails by des
 ## 6. 自己验证这些数字
 
 ```
-CodexStatusbar.exe --self-test fixtures            # 246 checks over the production code (218 without fixtures)
+CodexStatusbar.exe --self-test fixtures            # 296 checks over the production code (268 without fixtures)
 python tools\verify_metrics.py          # real conversations, raw vs derived
 python tools\make_fixtures.py           # deterministic fixtures + assertions
 python tools\verify_tail_recovery.py    # bounded-tail recovery == full parse
@@ -942,3 +942,33 @@ CodexStatusbar.exe --uninstall-startup     # unregister, and remember the choice
 `tools\verify_lifecycle_live.ps1` 驱动真实的 Codex Desktop 走完关闭/打开循环，并同时校验两侧：
 覆盖窗口自己的 `[lifecycle]` 块*和*一次独立的 Win32 窗口枚举，因此"已附着"必须意味着状态条真的
 在屏幕上。它会报告通过了多少项检查，并写出 `lifecycle-verification.json`。
+---
+
+## 位置快速通道（rc3）
+
+状态条不再只靠一个定时器跟随 Codex 窗口，而是分成两条通道。
+
+* **`WinEventHostMonitor`** —— 用 `SetWinEventHook` 把订阅限定在 Codex 进程上（`EVENT_OBJECT_LOCATIONCHANGE`、
+  `EVENT_SYSTEM_MOVESIZESTART/END`、`EVENT_SYSTEM_FOREGROUND`、`EVENT_SYSTEM_MINIMIZESTART/END`）。钩子是
+  out-of-context 安装的，回调直接落在悬浮条自己的 UI 线程上：没有跨线程投递、没有队列、也就不会堆积旧位置。
+  回调里只做一件事：记下"宿主窗口动过了"。
+* **`HostWindowSampler`** —— 每次采样只调一次 `GetWindowRect`；DWM 边框、DPI、显示器工作区只在形状真的变了时才读。
+  一次几何变化会被持续上报直到被"提交"，所以被限速挡下的那一帧只是把位移留待下一帧，不会把它丢掉。
+* **`FastPathDriver` + `PositionScheduler`** —— 纯函数式的决策逻辑（idle → burst → settling），
+  `--self-test` 用合成的矩形和显式时钟驱动它。
+* **`TokenStripForm.ApplyLayoutPositionOnly`** —— 形状没变的移动就是一次
+  `SetWindowPos`（`SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING | SWP_NOREDRAW`），
+  不重新量文字、不重新渲染、不调用 `UpdateLayeredWindow`。`OnPaint` 也被像素版本号挡住，所以移动不可能触发整张重绘。
+
+诊断：`--debug` 下每秒汇总一次 `[position-performance]` 块（空闲时每十秒一次，且只在计数有变化时），
+内容包括模式、事件/写入/合并计数、宿主与悬浮条矩形、像素级位置误差以及在用的两个周期。
+逐帧不写任何日志。`--position-fast-debug`（或托盘里的 **位置诊断**）把同一个块变成每秒一次；
+两者都需要 `--debug`，因为这个块是写进调试日志的。
+
+```
+pwsh -File tools\verify_position_fastpath.ps1
+```
+
+把真实的 Codex 窗口移动一小段再移回来，同时用悬浮条自己的计数器和它真实的窗口矩形两方面做断言，
+并在生产配置下测 CPU 占用，最后在 `finally` 里恢复窗口几何。它不截图：
+"看起来跟不跟手"由人判断，脚本里也这么写着。

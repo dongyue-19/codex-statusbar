@@ -1,28 +1,16 @@
-CodexStatusbar 1.0.0-rc2 — SHA-256
-=================================
+CodexStatusbar 1.0.0-rc3 — SHA-256
+===================================
 
-  C9F5BCC750B1441109B50194F7B7395AC8EA202966FE516AA013F32AA6E1371E  CodexStatusbar.exe
+  8915F44B1A228FB7DD185BABF8E1A1CF8ED0C97A1001EDD6A067C3CFC98D3F0B  CodexStatusbar.exe
 
-Size           : 64,301,275 bytes (61.3 MB)
-Binary version : 1.0.0-rc2
+Size           : 64,320,805 bytes (61.3 MB)
+Binary version : 1.0.0-rc3
 Runtime        : self-contained win-x64 single file (no .NET runtime required)
 
 Self-test (run it yourself):
 
-  CodexStatusbar.exe --self-test                 -> 218 checks, 0 failures, exit 0
-  CodexStatusbar.exe --self-test <fixtures dir>  -> 246 checks, 0 failures, exit 0
+  CodexStatusbar.exe --self-test                 -> 268 checks, 0 failures, exit 0
+  CodexStatusbar.exe --self-test fixtures        -> 296 checks, 0 failures, exit 0
 
-The 28 fixture-based checks need the repository's `fixtures\` directory, so they are skipped with a
-note when the downloaded single file is run on its own. A fixtures path that does not exist is still
-a failure and exits 1.
-
-Verify the download on Windows:
-
-  Get-FileHash .\CodexStatusbar.exe -Algorithm SHA256
-
-or
-
-  certutil -hashfile CodexStatusbar.exe SHA256
-
-Reproducible: building this source tree with `dotnet publish` produces a byte-identical file, so the
-SHA-256 above is a property of the source, not of the machine that built it.
+The bare form skips the two fixture-driven sections (the fixtures live in the repository)
+and says so; it still exits 0, because "the files are not beside this exe" is not a failure.

@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace CodexStatusbar;
 
-internal sealed class OverlayContext : ApplicationContext
+internal sealed class OverlayContext : ApplicationContext, IFastPathTarget
 {
     private readonly OverlaySettings _settings;
     private readonly CodexIpcActiveThreadMonitor _routeMonitor = new();
@@ -58,6 +58,45 @@ internal sealed class OverlayContext : ApplicationContext
     private readonly CodexThemeSource _codexTheme = new();
     private readonly ComposerDockTracker _dockTracker;
     private ComposerDockSnapshot _lastDock = ComposerDockSnapshot.Empty;
+
+    // ---------------------------------------------------------------- position fast path
+    //
+    // The strip used to be repositioned only on the UI tick (350 ms in the active state), which is
+    // exactly the delay a person sees when dragging Codex: the window moves, the strip stays, and a
+    // third of a second later it catches up. The pipeline below splits that into two channels — cheap
+    // Win32 geometry driven by window events, and the existing UI Automation calibration — and only
+    // the cheap one runs at frame rate.
+    private readonly PositionScheduler _positionScheduler = new();
+    private readonly HostWindowSampler _hostSampler = new();
+    private readonly System.Windows.Forms.Timer _positionTimer;
+    private bool _positionTimerRunning;
+    private bool _inTick;
+
+    /// <summary>The dock snapshot and the host rectangle it was measured against, paired by revision.
+    /// Every rectangle inside a snapshot is an absolute screen coordinate, so re-anchoring it to the
+    /// current host rectangle is what turns a stale measurement into a correct prediction.</summary>
+    private long _observedDockRevision = -1;
+    private ComposerDockSnapshot _dockSnapshot = ComposerDockSnapshot.Empty;
+    private IntRect _dockSnapshotHost;
+
+    /// <summary>The host rectangle the *siblings* (row, composer, left cluster) were measured against,
+    /// i.e. the anchor of the last full discovery pass. The reference rectangle has its own, newer one.</summary>
+    private IntRect _siblingAnchorHost;
+
+    private long _observedWalkCount = -1;
+    private DateTime _lastDockRevisionChangeUtc = DateTime.MinValue;
+    private long _lastReportedFastReads;
+    private long _lastReportedWalks;
+    private int _lastReportedSetWindowPos;
+
+    /// <summary>Where the pipeline last told Windows to put the strip, for the position-error report.</summary>
+    private IntRect _lastDesiredWindowBounds;
+    private DateTime _lastImmediateTickUtc = DateTime.MinValue;
+    private DateTime _lastPositionReportUtc = DateTime.MinValue;
+    private PositionUpdateMode _lastReportedPositionMode = PositionUpdateMode.Idle;
+    private long _lastReportedNotes = -1;
+    private bool _positionDiagnostics;
+    private ToolStripMenuItem _positionDiagnosticsMenuItem = null!;
     private IntRect _lastDockReferenceRect;
     private int _responsiveLevel;
     private OverlayThemePalette _autoThemePalette = OverlayThemePalette.For(OverlayThemeKind.Dark);
@@ -87,12 +126,14 @@ internal sealed class OverlayContext : ApplicationContext
         string? settingsPath = null,
         DebugDiagnostics? debug = null,
         string? forcedThreadId = null,
-        bool background = false)
+        bool background = false,
+        bool positionDiagnostics = false)
     {
         _settingsPath = settingsPath;
         _debug = debug ?? new DebugDiagnostics(false);
         _forcedThreadId = forcedThreadId;
         _background = background;
+        _positionDiagnostics = positionDiagnostics;
         _modeLabel = background ? "background" : "interactive";
         _sessionRoot = sessionRoot;
         _executablePath = StartupCommandLine.ResolveExecutablePath();
@@ -176,6 +217,29 @@ internal sealed class OverlayContext : ApplicationContext
 
         _positionInfoMenuItem = new ToolStripMenuItem("位置：--") { Enabled = false };
         menu.Items.Add(_positionInfoMenuItem);
+
+        // The manual counterpart of --position-fast-debug: it only changes how often the
+        // [position-performance] block is summarised, so it stays useful without a restart. It needs the
+        // debug log to exist at all, so without --debug it says so rather than looking broken.
+        _positionDiagnosticsMenuItem = new ToolStripMenuItem("Position diagnostics  ·  位置诊断")
+        {
+            CheckOnClick = true,
+            Enabled = _debug.Enabled,
+            Checked = _positionDiagnostics
+        };
+        if (!_debug.Enabled)
+        {
+            _positionDiagnosticsMenuItem.Text += "（需要 --debug）";
+        }
+
+        _positionDiagnosticsMenuItem.CheckedChanged += (_, _) =>
+        {
+            _positionDiagnostics = _positionDiagnosticsMenuItem.Checked;
+            _lastPositionReportUtc = DateTime.MinValue;
+            _debug.Event($"position diagnostics {(_positionDiagnostics ? "on (1 s summaries)" : "off")}");
+            ReportPositionPerformance(DateTime.UtcNow);
+        };
+        menu.Items.Add(_positionDiagnosticsMenuItem);
 
         var anchorMenu = new ToolStripMenuItem("Anchor  ·  锚点");
         foreach (var anchor in AnchorPoints)
@@ -333,6 +397,13 @@ internal sealed class OverlayContext : ApplicationContext
         _timer.Tick += (_, _) => Tick();
         _outsideClickTimer = new System.Windows.Forms.Timer { Interval = 40 };
         _outsideClickTimer.Tick += (_, _) => PollOutsidePointer();
+
+        // The position pipeline's own timer. It only exists while the host window is moving: it is
+        // started by the first WinEvent of a burst and stopped again when the burst settles, so an idle
+        // machine has exactly the timers it had before.
+        _positionTimer = new System.Windows.Forms.Timer { Interval = PositionFastPathRules.FastIntervalMs };
+        _positionTimer.Tick += (_, _) => OnPositionTimerTick();
+
         _timer.Start();
     }
 
@@ -708,6 +779,14 @@ internal sealed class OverlayContext : ApplicationContext
     /// </summary>
     private void DetachSubsystems()
     {
+        // The WinEvent subscription belongs to this Codex process: unhook it and forget the host
+        // rectangle, so the next Codex start is a first attach in every respect.
+        _hostSampler.Unbind();
+        _positionScheduler.Reset();
+        _observedDockRevision = -1;
+        _dockSnapshotHost = default;
+        _lastDesiredWindowBounds = default;
+        EnsurePositionTimerState();
         _dockTracker.Enabled = false;
         _routeMonitor.Stop();
         _monitor?.Dispose();
@@ -740,6 +819,345 @@ internal sealed class OverlayContext : ApplicationContext
             _timer.Interval = interval;
         }
     }
+
+    // -------------------------------------------------------------------- position fast path
+
+    /// <summary>
+    /// Brings the position pipeline in line with the current state: subscribes to the host window's
+    /// events, ages the burst state machine, sets the accurate path's cadence, and starts or stops the
+    /// fast timer. Called at the end of every tick, so every path out of the tick — placing, hiding,
+    /// waiting, editing — converges here.
+    /// </summary>
+    private void UpdatePositionPipeline()
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        var hostHandle = _currentTarget?.HostWindow.Handle ?? IntPtr.Zero;
+        if (_lifecycle.SubsystemsRunning && hostHandle != IntPtr.Zero)
+        {
+            if (_hostSampler.Window != hostHandle)
+            {
+                if (_hostSampler.Bind(hostHandle, OnHostWindowEvent))
+                {
+                    _debug.Event(
+                        $"position: following HWND {hostHandle.ToInt64():X} "
+                        + $"({(_hostSampler.Events is null ? "no WinEvent hook" : "WinEvent hook armed")})");
+                }
+
+                _positionScheduler.Reset();
+                _observedDockRevision = -1;
+                _dockSnapshotHost = default;
+            }
+        }
+        else if (_hostSampler.Window != IntPtr.Zero)
+        {
+            _hostSampler.Unbind();
+            _positionScheduler.Reset();
+            _observedDockRevision = -1;
+            _dockSnapshotHost = default;
+        }
+
+        ApplySettleTransition(_positionScheduler.Advance(nowUtc));
+        ApplyAccurateCadence();
+        EnsurePositionTimerState();
+        ReportPositionPerformance(nowUtc);
+    }
+
+    /// <summary>
+    /// Keeps the accurate path's cadence in step with what is happening. This is the only place the
+    /// cross-process read rate is raised, and it is raised for a resize and not for a move.
+    /// </summary>
+    private void ApplyAccurateCadence()
+    {
+        // A usable reference means the accurate path has something cheap to re-read. Without one it would
+        // have to walk the tree on every poll, so the cadence stays slow however fast the host is moving.
+        // The flag is the tracker's *live* state, not its last published snapshot.
+        var wanted = PositionFastPathRules.AccurateIntervalFor(
+            _positionScheduler.Mode,
+            _positionScheduler.ShapeChangeInBurst,
+            _dockTracker.HasCheapPath);
+        if (_dockTracker.AccurateRefreshIntervalMs != wanted)
+        {
+            _dockTracker.AccurateRefreshIntervalMs = wanted;
+        }
+
+        // During a burst the reference rectangle moves on every read, and the tracker's rule would turn
+        // each of those into a full tree traversal. A moving window does not need one: the rectangles
+        // are translated, which is exact for a move and first-order for a resize, and the forced resync
+        // when the burst ends confirms the settled layout with two walks. This is what keeps a burst at
+        // *fewer* traversals than the old idle cadence, not more.
+        var walkOnMove = _positionScheduler.Mode != PositionUpdateMode.Burst;
+        if (_dockTracker.WalkOnReferenceMove != walkOnMove)
+        {
+            _dockTracker.WalkOnReferenceMove = walkOnMove;
+        }
+    }
+
+    private void ApplySettleTransition(SettleTransition transition)
+    {
+        switch (transition)
+        {
+            case SettleTransition.EnterSettling:
+                // §17: the host stopped moving. Ask for one full discovery pass now instead of waiting
+                // for the next scheduled one, so maximize/restore is corrected immediately.
+                _dockTracker.RequestResync();
+                _debug.Event("position: motion stopped, forcing an accurate resync");
+                break;
+            case SettleTransition.Settled:
+                _debug.Event("position: settled, back to the idle cadence");
+                break;
+        }
+    }
+
+    private void EnsurePositionTimerState()
+    {
+        var wanted = _positionScheduler.Mode != PositionUpdateMode.Idle
+            && _lifecycle.SubsystemsRunning
+            && Volatile.Read(ref _disposed) == 0;
+        if (wanted && !_positionTimerRunning)
+        {
+            _positionTimerRunning = true;
+            var interval = PositionFastPathRules.BurstIntervalFor(_positionScheduler.Mode);
+            if (_positionTimer.Interval != interval)
+            {
+                _positionTimer.Interval = interval;
+            }
+
+            _positionTimer.Start();
+        }
+        else if (!wanted && _positionTimerRunning)
+        {
+            _positionTimerRunning = false;
+            _positionTimer.Stop();
+        }
+
+        if (_positionTimerRunning)
+        {
+            var interval = PositionFastPathRules.BurstIntervalFor(_positionScheduler.Mode);
+            if (_positionTimer.Interval != interval)
+            {
+                _positionTimer.Interval = interval;
+            }
+        }
+    }
+
+    /// <summary>
+    /// One WinEvent naming the host window. Deliberately does the minimum: record that the host moved
+    /// and let the scheduler decide when the next write is owed. Reading the geometry and writing the
+    /// window happen in <see cref="FastPathDriver.Step"/>, which is rate limited — so the event rate
+    /// cannot become the write rate, and there is no queue of past positions to replay.
+    /// </summary>
+    private void OnHostWindowEvent(HostWindowEventKind kind)
+    {
+        if (Volatile.Read(ref _disposed) != 0 || !_lifecycle.SubsystemsRunning)
+        {
+            return;
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        _positionScheduler.OnHostEvent(nowUtc);
+
+        // Suppress the walk-on-reference-move *now*, not on the next pipeline update: between the first
+        // event of a burst and the next timer frame the tracker could still walk on the reference's
+        // movement, which is exactly the traversal a burst is supposed to avoid.
+        ApplyAccurateCadence();
+        EnsurePositionTimerState();
+
+        if (!_form.Visible)
+        {
+            // §16: a host that is being dragged is by definition the foreground interaction, so the
+            // strip must not wait out the idle tick before it appears. Rate limited, so this is at most
+            // a handful of extra ticks during a burst.
+            RequestImmediateTick();
+            return;
+        }
+
+        FastPathDriver.Step(this, _positionScheduler, nowUtc, force: false);
+    }
+
+    private void OnPositionTimerTick()
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        ApplySettleTransition(_positionScheduler.Advance(nowUtc));
+        if (_positionScheduler.Dirty)
+        {
+            // The timer is already the pacing, so the frame it produces bypasses the rate limit: this is
+            // the frame that catches up on every event folded since the last write.
+            FastPathDriver.Step(this, _positionScheduler, nowUtc, force: true);
+        }
+
+        ApplyAccurateCadence();
+        EnsurePositionTimerState();
+        ReportPositionPerformance(nowUtc);
+    }
+
+    /// <summary>
+    /// Runs one ordinary tick now, but no more often than <see cref="ImmediateTickIntervalMs"/>. Only
+    /// used to make the strip appear promptly at the start of a drag.
+    /// </summary>
+    private void RequestImmediateTick()
+    {
+        if (_inTick)
+        {
+            return;
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        if ((nowUtc - _lastImmediateTickUtc).TotalMilliseconds < ImmediateTickIntervalMs)
+        {
+            return;
+        }
+
+        _lastImmediateTickUtc = nowUtc;
+        Tick();
+    }
+
+    private const int ImmediateTickIntervalMs = 150;
+
+    // ------------------------------------------------------- IFastPathTarget (the real window)
+
+    bool IFastPathTarget.CanTrack =>
+        _form.Visible && _currentTarget is not null && _hostSampler.Window != IntPtr.Zero;
+
+    IntRect IFastPathTarget.CurrentWindowBounds => new(
+        _form.Left,
+        _form.Top,
+        _form.Width,
+        _form.Height);
+
+    bool IFastPathTarget.TrySampleHost(out HostGeometrySample sample) => _hostSampler.TrySample(out sample);
+
+    void IFastPathTarget.CommitHostGeometry() => _hostSampler.Commit();
+
+    void IFastPathTarget.MoveWindowTo(IntRect bounds)
+    {
+        if (_form.CurrentLayout is not { } layout)
+        {
+            return;
+        }
+
+        var translated = layout with { WindowBounds = bounds };
+        if (_form.ApplyLayoutPositionOnly(translated))
+        {
+            _lastDesiredWindowBounds = bounds;
+            return;
+        }
+
+        // The strip's own shape changed along with the move (a responsive variant, an expanded panel):
+        // that is a real re-layout, not a move, so hand it to the accurate path.
+        RelayoutFromFastPath();
+    }
+
+    void IFastPathTarget.RelayoutFromAccuratePath() => RelayoutFromFastPath();
+
+    void IFastPathTarget.HideForUnusableHost() => HideForUnusableHost();
+
+    /// <summary>
+    /// A shape change mid-burst: the placement has to be recomputed from the host's real geometry.
+    /// The strip is placed through the same docking rules as always, only with the position-only write
+    /// allowed — a resize that keeps the strip's own shape therefore costs no repaint either.
+    /// </summary>
+    private void RelayoutFromFastPath()
+    {
+        if (Volatile.Read(ref _disposed) != 0 || !_hostSampler.TryBuildHostInfo(out var host))
+        {
+            HideForUnusableHost();
+            return;
+        }
+
+        var target = new CodexWindowTarget(host);
+        _currentTarget = target;
+        PlaceStrip(target, fastPath: true);
+    }
+
+    /// <summary>
+    /// Summarises the position pipeline. During motion and settling this is once a second; when idle it
+    /// is every ten seconds and only if a counter actually moved, so a machine that is not being touched
+    /// does not grow the log.
+    /// </summary>
+    private void ReportPositionPerformance(DateTime nowUtc)
+    {
+        if (!_debug.Enabled)
+        {
+            return;
+        }
+
+        var mode = _positionScheduler.Mode;
+        var modeChanged = mode != _lastReportedPositionMode;
+        var countersChanged = _positionScheduler.Notes != _lastReportedNotes;
+        var due = modeChanged
+            || (mode == PositionUpdateMode.Idle
+                ? _positionDiagnostics && (nowUtc - _lastPositionReportUtc).TotalSeconds >= 10
+                : (nowUtc - _lastPositionReportUtc).TotalSeconds >= 1);
+        if (!due)
+        {
+            return;
+        }
+
+        if (mode == PositionUpdateMode.Idle && !modeChanged && !countersChanged)
+        {
+            return;
+        }
+
+        _lastPositionReportUtc = nowUtc;
+        _lastReportedPositionMode = mode;
+        _lastReportedNotes = _positionScheduler.Notes;
+
+        var actual = HostWindowSampler.TryReadWindowRect(_form.Handle, out var liveActual)
+            ? liveActual
+            : new IntRect(_form.Left, _form.Top, _form.Width, _form.Height);
+        var desired = _lastDesiredWindowBounds;
+        var errorX = desired.IsEmpty ? 0 : actual.X - desired.X;
+        var errorY = desired.IsEmpty ? 0 : actual.Y - desired.Y;
+        _positionScheduler.NotePositionError(errorX, errorY);
+
+        var fastReads = _dockTracker.FastReadCount;
+        var walks = _dockTracker.WalkCount;
+        var counters = _positionScheduler.TakeDelta();
+        var report = new DebugDiagnostics.PositionPerformanceReport(
+            mode,
+            counters.WinEvents,
+            counters.FastUpdates,
+            counters.MoveOnlyWrites,
+            counters.RelayoutWrites,
+            _form.SetWindowPosCallCount - _lastReportedSetWindowPos,
+            counters.CoalescedEvents,
+            counters.RateLimitedFrames,
+            counters.SkippedUnchanged,
+            Math.Max(0, fastReads - _lastReportedFastReads),
+            Math.Max(0, walks - _lastReportedWalks),
+            counters.OffscreenChanges,
+            PositionFastPathRules.BurstIntervalFor(mode),
+            _dockTracker.AccurateRefreshIntervalMs,
+            Age(_positionScheduler.LastHostActivityUtc, nowUtc),
+            _dockTracker.MillisecondsSinceLastRead,
+            _hostSampler.WindowBounds,
+            desired,
+            actual,
+            errorX,
+            errorY,
+            _dockTracker.Latest.DescribeSource(),
+            _dockTracker.WalkOnReferenceMove,
+            _hostSampler.Events?.LastError);
+
+        // The deltas are what a "one drag" measurement means, so they are booked after being reported.
+        _lastReportedFastReads = fastReads;
+        _lastReportedWalks = walks;
+        _lastReportedSetWindowPos = _form.SetWindowPosCallCount;
+        _debug.WritePositionPerformance(DebugDiagnostics.BuildPositionPerformance(report));
+    }
+
+    private static double Age(DateTime then, DateTime nowUtc) =>
+        then == DateTime.MinValue ? -1 : Math.Max(0, (nowUtc - then).TotalMilliseconds);
 
     private void UpdateLifecycleMenuText()
     {
@@ -872,6 +1290,28 @@ internal sealed class OverlayContext : ApplicationContext
             return;
         }
 
+        // A WinEvent callback runs on this same thread and may re-enter the tick (it asks for an
+        // immediate tick so a drag does not start with an invisible strip). The guard makes that either
+        // impossible or harmless, depending on where the message pump happens to be.
+        if (_inTick)
+        {
+            return;
+        }
+
+        _inTick = true;
+        try
+        {
+            TickCore();
+        }
+        finally
+        {
+            _inTick = false;
+            UpdatePositionPipeline();
+        }
+    }
+
+    private void TickCore()
+    {
         _lifecycle.OverlayVisible = _form.Visible;
 
         // The lifecycle decides first whether anything Codex-specific runs at all this tick. While
@@ -1085,15 +1525,24 @@ internal sealed class OverlayContext : ApplicationContext
         if (OverlayLayoutCalculator.IsUnusableRect(target.HostWindow.WindowBounds)
             || OverlayLayoutCalculator.IsUnusableRect(target.HostWindow.ExtendedFrameBounds))
         {
-            _interaction.HideForSpace();
-            StopOutsideClickPolling();
-            _form.Hide();
-            _lastDock = ComposerDockSnapshot.Empty;
-            _responsiveLevel = 0;
-            ReportPosition(target, null, null);
+            HideForUnusableHost(target);
             return;
         }
 
+        PlaceStrip(target, fastPath: false);
+    }
+
+    /// <summary>
+    /// Places the strip for <paramref name="target"/>'s current geometry.
+    ///
+    /// <para><paramref name="fastPath"/> is the whole difference between the two channels: on the fast
+    /// path a placement that did not change the strip's shape is written with a position-only
+    /// <c>SetWindowPos</c> and no repaint at all, while the accurate path always rebuilds the surface.
+    /// Both arrive here so the docking rules — the ladder, the responsive budget, the display clamp —
+    /// exist exactly once.</para>
+    /// </summary>
+    private void PlaceStrip(CodexWindowTarget target, bool fastPath)
+    {
         // Docked mode replaces the manual position model entirely: the placement comes from the live
         // UI Automation rectangle, never from a saved coordinate.
         var dock = ResolveDock(target);
@@ -1110,7 +1559,11 @@ internal sealed class OverlayContext : ApplicationContext
                 _interaction.HideForSpace();
                 StopOutsideClickPolling();
                 _form.Hide();
-                ReportPosition(target, null, null);
+                if (!fastPath)
+                {
+                    ReportPosition(target, null, null);
+                }
+
                 return;
             }
         }
@@ -1165,6 +1618,15 @@ internal sealed class OverlayContext : ApplicationContext
             _interaction.RestoreAfterSpace();
         }
 
+        // §9: position and render are separate. If the strip kept its shape, the move is the entire
+        // update — no re-measure, no re-render, no blit — and everything below (which exists to keep the
+        // surface and the hit region honest) is already correct.
+        if (fastPath && _form.ApplyLayoutPositionOnly(layout))
+        {
+            _lastDesiredWindowBounds = layout.WindowBounds;
+            return;
+        }
+
         _form.ApplyLayout(layout);
         ReportPosition(target, manualTopLeft, layout);
         if (layout.State == OverlayVisualState.HiddenForSpace)
@@ -1181,6 +1643,20 @@ internal sealed class OverlayContext : ApplicationContext
         _form.RefreshSurface();
 
         UpdateOutsideClickPolling();
+        _lastDesiredWindowBounds = layout.WindowBounds;
+    }
+
+    private void HideForUnusableHost(CodexWindowTarget? target = null)
+    {
+        _interaction.HideForSpace();
+        StopOutsideClickPolling();
+        _form.Hide();
+        _lastDock = ComposerDockSnapshot.Empty;
+        _responsiveLevel = 0;
+        if (target is not null)
+        {
+            ReportPosition(target, null, null);
+        }
     }
 
     /// <summary>
@@ -1306,18 +1782,97 @@ internal sealed class OverlayContext : ApplicationContext
         }
 
         var handle = target.HostWindow.Handle.ToInt64();
-        var latest = _dockTracker.Latest;
-        if (latest.Source != ComposerReferenceSource.None
-            && latest.WindowHandle == handle
-            && !OverlayLayoutCalculator.IsUnusableRect(latest.ReferenceRect))
+        var snapshot = ObserveDockSnapshot(handle, target.HostWindow.WindowBounds);
+        if (snapshot is null)
         {
-            return latest;
+            return ComposerDockSnapshot.Empty with
+            {
+                Source = ComposerReferenceSource.Window,
+                WindowHandle = handle
+            };
         }
 
-        return ComposerDockSnapshot.Empty with
+        return ReAnchorToCurrentHost(snapshot, target.HostWindow.WindowBounds);
+    }
+
+    /// <summary>
+    /// The newest published dock snapshot, with each half paired to the host rectangle it was actually
+    /// measured against.
+    ///
+    /// <para>Pairing is the piece that makes the rest of this correct, and it has to happen twice
+    /// because a snapshot is not homogeneous. Every rectangle in it is an absolute screen coordinate, so
+    /// "Context indicator at x=1708" only means something as "57 px left of the host's right edge". But
+    /// the reference rectangle is re-read on every poll while the row, the composer card and the left
+    /// cluster are only re-read by a full walk — so they are measured at different moments and need
+    /// different anchors: a fast read re-anchors the reference at the current host rectangle, a walk
+    /// re-anchors the siblings.</para>
+    /// </summary>
+    private ComposerDockSnapshot? ObserveDockSnapshot(long handle, IntRect hostBounds)
+    {
+        var nowUtc = DateTime.UtcNow;
+        var revision = _dockTracker.Revision;
+        if (revision != _observedDockRevision)
         {
-            Source = ComposerReferenceSource.Window,
-            WindowHandle = handle
+            _observedDockRevision = revision;
+            _dockSnapshot = _dockTracker.Latest;
+            _dockSnapshotHost = hostBounds;
+            _lastDockRevisionChangeUtc = nowUtc;
+        }
+
+        var walks = _dockTracker.WalkCount;
+        if (walks != _observedWalkCount)
+        {
+            _observedWalkCount = walks;
+
+            // This revision came from a full discovery pass, so the siblings were measured now.
+            _siblingAnchorHost = hostBounds;
+        }
+
+        if (_dockSnapshot.Source == ComposerReferenceSource.None
+            || _dockSnapshot.WindowHandle != handle
+            || OverlayLayoutCalculator.IsUnusableRect(_dockSnapshot.ReferenceRect))
+        {
+            return null;
+        }
+
+        return _dockSnapshot;
+    }
+
+    /// <summary>
+    /// Re-anchors a snapshot's rectangles from the host rectangles they were measured against to the
+    /// host rectangle now.
+    ///
+    /// <para>A pure move is answered exactly by this: the composer translates rigidly with its window,
+    /// and so does every rectangle measured inside it. That is why dragging Codex no longer needs to
+    /// wait for a UI Automation read at all — the wait was never necessary, it was an artefact of
+    /// treating measurements as absolute positions. A resize is a first-order prediction, corrected by
+    /// the accurate path and confirmed by the resync when the burst ends.</para>
+    /// </summary>
+    private ComposerDockSnapshot ReAnchorToCurrentHost(ComposerDockSnapshot snapshot, IntRect hostBounds)
+    {
+        var referenceAnchor = _dockSnapshotHost;
+        var siblingAnchor = _siblingAnchorHost.IsEmpty ? referenceAnchor : _siblingAnchorHost;
+        var shiftReference = !referenceAnchor.IsEmpty && referenceAnchor != hostBounds;
+        var shiftSiblings = !siblingAnchor.IsEmpty && siblingAnchor != hostBounds;
+        if (!shiftReference && !shiftSiblings)
+        {
+            return snapshot;
+        }
+
+        return snapshot with
+        {
+            ReferenceRect = shiftReference
+                ? PositionFastPathRules.ReAnchor(snapshot.ReferenceRect, referenceAnchor, hostBounds)
+                : snapshot.ReferenceRect,
+            RowRect = shiftSiblings
+                ? PositionFastPathRules.ReAnchor(snapshot.RowRect, siblingAnchor, hostBounds)
+                : snapshot.RowRect,
+            ComposerRect = shiftSiblings
+                ? PositionFastPathRules.ReAnchor(snapshot.ComposerRect, siblingAnchor, hostBounds)
+                : snapshot.ComposerRect,
+            LeftClusterRect = shiftSiblings
+                ? PositionFastPathRules.ReAnchor(snapshot.LeftClusterRect, siblingAnchor, hostBounds)
+                : snapshot.LeftClusterRect
         };
     }
 
@@ -1999,6 +2554,11 @@ internal sealed class OverlayContext : ApplicationContext
             _outsideClickTimer.Stop();
             _timer.Dispose();
             _outsideClickTimer.Dispose();
+            // Returns false while a WinEvent callback is on the stack; the hook is torn down either way,
+            // and Dispose is the last thing that happens in this process.
+            _positionTimer.Stop();
+            _positionTimer.Dispose();
+            _hostSampler.Dispose();
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
             _hotkey.Dispose();

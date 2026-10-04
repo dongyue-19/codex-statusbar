@@ -136,6 +136,18 @@ internal sealed class TokenStripForm : Form
     private int _capsuleVariantIndex;
 
     /// <summary>
+    /// Bumped whenever something that affects the drawn pixels changes. It is the cache key for the
+    /// variant measurement and the gate for <see cref="OnPaint"/>: a repaint that is not the result of
+    /// a content change has nothing to do, which is what makes a 60 Hz position update free.
+    /// </summary>
+    private int _presentationVersion;
+
+    private int _blittedPresentationVersion = -1;
+    private double[]? _measuredWidths;
+    private uint _measuredWidthsDpi;
+    private int _measuredWidthsVersion = -1;
+
+    /// <summary>
     /// The UI font family. Not a guess: Codex's own CSS declares
     /// <c>--font-sans-default: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif</c>, and of
     /// those only "Segoe UI" resolves on Windows. Rendering the model selector's label in Segoe UI
@@ -249,13 +261,26 @@ internal sealed class TokenStripForm : Form
     internal double[] MeasureCapsuleWidthsDip(uint? dpiOverride = null)
     {
         var variants = _presentation.Variants;
-        var widths = new double[variants.Count];
         if (variants.Count == 0)
         {
-            return widths;
+            return Array.Empty<double>();
         }
 
         var dpi = dpiOverride is { } explicitDpi && explicitDpi != 0 ? explicitDpi : EffectiveDpi;
+
+        // The measurement is a bitmap, a Graphics, two fonts and one DrawString per variant — far too
+        // much to repeat on every frame of a drag, and the answer cannot change unless the text or the
+        // DPI does. A probe passing an explicit DPI deliberately bypasses the cache: it is measuring a
+        // DPI this window is not currently laid out at.
+        if (dpiOverride is null
+            && _measuredWidths is { } cached
+            && _measuredWidthsDpi == dpi
+            && _measuredWidthsVersion == _presentationVersion)
+        {
+            return cached;
+        }
+
+        var widths = new double[variants.Count];
         var metrics = OverlayRenderMetrics.Create(dpi, ManualAttachmentRules.DefaultScalePercent);
         using var bitmap = new Bitmap(1, 1);
         // The string is measured against the surface DPI so the result can be converted back to DIP
@@ -269,6 +294,13 @@ internal sealed class TokenStripForm : Form
         {
             var deviceWidth = MeasureStripLine(graphics, variants[index], font, iconFont);
             widths[index] = deviceWidth * 96d / dpi;
+        }
+
+        if (dpiOverride is null)
+        {
+            _measuredWidths = widths;
+            _measuredWidthsDpi = dpi;
+            _measuredWidthsVersion = _presentationVersion;
         }
 
         return widths;
@@ -440,6 +472,82 @@ internal sealed class TokenStripForm : Form
     }
 
     /// <summary>
+    /// The fast path's write: move the window to <paramref name="layout"/>'s rectangle and nothing else.
+    ///
+    /// <para>This is the whole point of separating position from render. A host window that only moved
+    /// changes no pixel of the strip, so the expensive half of <see cref="ApplyLayout"/> — measuring the
+    /// variants, re-rendering the 32-bit surface and blitting it through <c>UpdateLayeredWindow</c> —
+    /// would produce a byte-identical bitmap. <c>SetWindowPos</c> with <c>SWP_NOREDRAW</c> moves the
+    /// existing surface instead, at a cost measured in microseconds.</para>
+    ///
+    /// </summary>
+    /// <returns>
+    /// False when the fast path cannot answer and the caller must fall back to
+    /// <see cref="ApplyLayout"/>: the window's shape changed (so the surface really does have to be
+    /// rebuilt), or the strip's hit region/state changed with it.
+    /// </returns>
+    internal bool ApplyLayoutPositionOnly(OverlayLayoutResult layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        if (!IsHandleCreated || IsDisposed)
+        {
+            return false;
+        }
+
+        // A different window size means a different surface, and a different capsule or panel box means
+        // a different hit region. Neither is a move; both need the full path.
+        if (layout.WindowBounds.Width != Width
+            || layout.WindowBounds.Height != Height
+            || CurrentLayout is not { } previous
+            || previous.State != layout.State
+            || previous.CapsuleBounds != layout.CapsuleBounds
+            || previous.PanelBounds != layout.PanelBounds)
+        {
+            return false;
+        }
+
+        CurrentLayout = layout;
+        return MoveWindowTo(layout.WindowBounds);
+    }
+
+    /// <summary>
+    /// Moves the window without touching its content, its Z-order, its activation state or its input
+    /// region. Returns false when no move was needed or the move could not be made.
+    /// </summary>
+    internal bool MoveWindowTo(IntRect bounds)
+    {
+        if (!IsHandleCreated || IsDisposed)
+        {
+            return false;
+        }
+
+        // §14: a move to where the window already is must not reach DWM at all.
+        if (bounds.X == Left && bounds.Y == Top && bounds.Width == Width && bounds.Height == Height)
+        {
+            return true;
+        }
+
+        SetWindowPosCallCount++;
+        return SetWindowPos(
+            Handle,
+            IntPtr.Zero,
+            bounds.X,
+            bounds.Y,
+            bounds.Width,
+            bounds.Height,
+            // SWP_NOSIZE: a position-only write can never resize the window away from the surface it
+            // already has. SWP_NOZORDER: with a null insert-after, omitting this would drop the strip
+            // to the bottom of the Z-order — the one thing that must not change. NOACTIVATE and
+            // NOOWNERZORDER keep focus and ownership exactly as they were, NOSENDCHANGING skips the
+            // WM_WINDOWPOSCHANGING round trip, and NOREDRAW means no WM_PAINT is generated for a move
+            // that changed no pixel.
+            SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder | SwpNoSendChanging | SwpNoRedraw);
+    }
+
+    /// <summary>How many real <c>SetWindowPos</c> calls the process has made for the strip.</summary>
+    internal int SetWindowPosCallCount { get; private set; }
+
+    /// <summary>
     /// Repaints the layered content directly instead of waiting for <c>WM_PAINT</c>.
     ///
     /// <para>This matters: a layered window's content only exists once <c>UpdateLayeredWindow</c> has
@@ -449,6 +557,10 @@ internal sealed class TokenStripForm : Form
     /// </summary>
     private void InvalidateSurface()
     {
+        // Every content-changing setter (presentation, theme, transparency, shadow, variant, layout,
+        // edit mode) funnels through here, so this is the exact set of events that make the drawn
+        // pixels differ from the ones already in the surface.
+        _presentationVersion++;
         Invalidate();
         UpdateLayeredSurface();
     }
@@ -825,7 +937,14 @@ internal sealed class TokenStripForm : Form
 
     protected override void OnPaint(PaintEventArgs eventArgs)
     {
-        UpdateLayeredSurface();
+        // A repaint request that is not the result of a content change has nothing to do. This matters
+        // for the position fast path: a window move can generate WM_PAINT, and the naive handler would
+        // re-render the whole surface and blit it for every frame of a drag — exactly the cost the fast
+        // path exists to avoid.
+        if (_blittedPresentationVersion != _presentationVersion)
+        {
+            UpdateLayeredSurface();
+        }
     }
 
     /// <summary>
@@ -851,6 +970,7 @@ internal sealed class TokenStripForm : Form
 
         using var bitmap = RenderSurfaceBitmap(size, dpi);
         BlitLayeredSurface(bitmap, size);
+        _blittedPresentationVersion = _presentationVersion;
     }
 
     private void BlitLayeredSurface(Bitmap bitmap, Size size)
@@ -1542,6 +1662,26 @@ internal sealed class TokenStripForm : Form
     }
 
     private const int GwlExStyle = -20;
+
+    // SetWindowPos flags used by the position fast path. The combination is deliberate: see
+    // MoveWindowTo. Not one of them changes Z-order, activation, focus or ownership.
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoOwnerZOrder = 0x0200;
+    private const uint SwpNoSendChanging = 0x0400;
+    private const uint SwpNoRedraw = 0x0008;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(
+        IntPtr windowHandle,
+        IntPtr insertAfter,
+        int x,
+        int y,
+        int width,
+        int height,
+        uint flags);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint

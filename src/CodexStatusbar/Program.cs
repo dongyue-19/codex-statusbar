@@ -16,6 +16,7 @@ internal sealed record CommandLineOptions(
     bool NoOverlay,
     bool Background,
     bool RestartWait,
+    bool PositionFastDebug,
     int? DurationSeconds)
 {
     public static CommandLineOptions Parse(IReadOnlyList<string> args)
@@ -26,6 +27,7 @@ internal sealed record CommandLineOptions(
         var noOverlay = false;
         var background = false;
         var restartWait = false;
+        var positionFastDebug = false;
         int? durationSeconds = null;
 
         for (var index = 0; index < args.Count; index++)
@@ -51,6 +53,14 @@ internal sealed record CommandLineOptions(
                 // Internal: the tray's "Restart Statusbar" relaunches this exe while the old process
                 // is still releasing the single-instance mutex.
                 restartWait = true;
+            }
+            else if (argument.Equals("--position-fast-debug", StringComparison.OrdinalIgnoreCase))
+            {
+                // The manual counterpart of the tray's "Position diagnostics": summarise the position
+                // pipeline every second instead of only when something changes. It implies --debug,
+                // because the block is written to the debug log.
+                positionFastDebug = true;
+                debug = true;
             }
             else if (argument.Equals("--thread", StringComparison.OrdinalIgnoreCase))
             {
@@ -84,6 +94,7 @@ internal sealed record CommandLineOptions(
             noOverlay,
             background,
             restartWait,
+            positionFastDebug,
             durationSeconds);
     }
 
@@ -150,7 +161,8 @@ internal static class Program
             options.SettingsPath,
             new DebugDiagnostics(options.Debug),
             options.ForcedThreadId,
-            options.Background));
+            options.Background,
+            options.PositionFastDebug));
         GC.KeepAlive(singleInstanceMutex);
         return 0;
     }

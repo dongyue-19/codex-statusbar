@@ -144,6 +144,114 @@ internal sealed class DebugDiagnostics
     }
 
     /// <summary>
+    /// Appends the <c>[position-performance]</c> section: which channel the position pipeline is on,
+    /// what it cost, and how far the strip actually is from where it was told to go. Written as its own
+    /// colon-free-header block like the others, and only ever as a summary — the whole point of the
+    /// counters is that nothing is logged per frame.
+    /// </summary>
+    public void WritePositionPerformance(string body)
+    {
+        if (!Enabled || string.IsNullOrWhiteSpace(body))
+        {
+            return;
+        }
+
+        AppendRaw(Environment.NewLine + "[position-performance]" + Environment.NewLine + body + Environment.NewLine);
+    }
+
+    /// <summary>
+    /// Everything the <c>[position-performance]</c> block reports. The counters are per reporting window
+    /// (not cumulative), which is what makes "one fast drag" measurable.
+    /// </summary>
+    internal readonly record struct PositionPerformanceReport(
+        PositionUpdateMode Mode,
+        long WinEvents,
+        long FastUpdates,
+        long MoveOnlyWrites,
+        long RelayoutWrites,
+        long SetWindowPosCalls,
+        long CoalescedEvents,
+        long RateLimitedFrames,
+        long SkippedUnchanged,
+        long AccurateRefreshes,
+        long FullTraversals,
+        long OffscreenRelayouts,
+        int BurstIntervalMs,
+        int AccurateIntervalMs,
+        double LastHostMovementAgeMs,
+        double LastAccurateAgeMs,
+        IntRect HostRect,
+        IntRect DesiredRect,
+        IntRect ActualRect,
+        int ErrorX,
+        int ErrorY,
+        string AccurateSource,
+        bool WalkOnReferenceMove,
+        string? WatcherError);
+
+    public static string BuildPositionPerformance(PositionPerformanceReport report)
+    {
+        var builder = new StringBuilder();
+        Append(builder, "Mode:", ModeName(report.Mode));
+        Append(builder, "Fast updates:", report.FastUpdates.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "Actual SetWindowPos calls:", report.SetWindowPosCalls.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "Coalesced events:", report.CoalescedEvents.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "UIA accurate refreshes:", report.AccurateRefreshes.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "UIA full traversals:", report.FullTraversals.ToString(CultureInfo.InvariantCulture));
+        Append(
+            builder,
+            "Last host movement age ms:",
+            report.LastHostMovementAgeMs < 0
+                ? "--"
+                : report.LastHostMovementAgeMs.ToString("0", CultureInfo.InvariantCulture));
+        Append(
+            builder,
+            "Last accurate UIA age ms:",
+            report.LastAccurateAgeMs < 0
+                ? "--"
+                : report.LastAccurateAgeMs.ToString("0", CultureInfo.InvariantCulture));
+        Append(builder, "Host rect:", Describe(report.HostRect));
+        Append(builder, "Desired overlay rect:", Describe(report.DesiredRect));
+        Append(builder, "Actual overlay rect:", Describe(report.ActualRect));
+        Append(
+            builder,
+            "Position error px:",
+            string.Create(CultureInfo.InvariantCulture, $"{report.ErrorX} / {report.ErrorY}"));
+        Append(builder, "Burst interval ms:", report.BurstIntervalMs.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "Accurate interval ms:", report.AccurateIntervalMs.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "WinEvents:", report.WinEvents.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "Move-only writes:", report.MoveOnlyWrites.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "Relayout writes:", report.RelayoutWrites.ToString(CultureInfo.InvariantCulture));
+        Append(
+            builder,
+            "Offscreen relayouts:",
+            report.OffscreenRelayouts.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "Rate-limited frames:", report.RateLimitedFrames.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "Unchanged samples:", report.SkippedUnchanged.ToString(CultureInfo.InvariantCulture));
+        Append(builder, "Accurate source:", report.AccurateSource);
+        Append(builder, "Walk on reference move:", report.WalkOnReferenceMove ? "true" : "false (burst)");
+        if (!string.IsNullOrWhiteSpace(report.WatcherError))
+        {
+            Append(builder, "Position error:", report.WatcherError);
+        }
+
+        return builder.ToString();
+    }
+
+    private static string ModeName(PositionUpdateMode mode) => mode switch
+    {
+        PositionUpdateMode.Burst => "burst",
+        PositionUpdateMode.Settling => "settling",
+        _ => "idle"
+    };
+
+    private static string Describe(IntRect rect) => rect.IsEmpty
+        ? "--"
+        : string.Create(
+            CultureInfo.InvariantCulture,
+            $"{rect.X},{rect.Y} {rect.Width}x{rect.Height}");
+
+    /// <summary>
     /// Everything the <c>[lifecycle]</c> block needs. Gathered by the caller because it owns the
     /// watcher, the registry and the overlay; kept as plain values so this type stays free of them.
     /// </summary>

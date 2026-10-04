@@ -83,6 +83,9 @@ internal static class SelfTest
         Section("lifecycle: Codex identity, start with Windows, attach ladder");
         RunLifecycle(stdout);
 
+        Section("position fast path: pure move, coalescing, burst tail, DPI/monitor");
+        RunPositionFastPath(stdout);
+
         stdout.WriteLine();
         stdout.WriteLine($"checks: {_checks}   failures: {_failures}");
         stdout.WriteLine($"RESULT: {(_failures == 0 ? "PASS" : "FAIL")}");
@@ -1042,10 +1045,362 @@ internal static class SelfTest
             OverlayPositionMode.ComposerContextLeft);
     }
 
-    private static void Section(string title)
+    /// <summary>
+    /// The position fast path, end to end and deterministically.
+    ///
+    /// <para>These are the spec's TEST A–F. They drive the production orchestration
+    /// (<see cref="FastPathDriver"/> over <see cref="PositionScheduler"/>) with synthetic host
+    /// rectangles and an explicit clock, and a fake window instead of a real one — so what is asserted
+    /// is the shipped decision path, without a screenshot, a sleep or a window on screen. The visual
+    /// result is the user's to accept; whether the pipeline moves once, moves late or moves a hundred
+    /// times is a fact that belongs in a test.</para>
+    /// </summary>
+    private static void RunPositionFastPath(TextWriter stdout)
     {
-        Console.Out.WriteLine();
+        _ = stdout;
+        var t0 = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var working = new IntRect(0, 0, 3840, 2160);
+
+        // ---------------------------------------------------------------- TEST A: a pure move
+        //
+        // The whole window translates by (+50,+30) with the size unchanged. The strip must follow by
+        // exactly that delta, and the accurate path must not be involved at all: no relayout, no
+        // traversal, and — this is the measurable form of "UIA traversal count = 0" — no change to the
+        // cross-process read rate.
+        var target = new FakeFastPathTarget(new IntRect(1000, 1000, 312, 33));
+        var scheduler = new PositionScheduler();
+        scheduler.OnHostEvent(t0);
+        target.SetHost(new IntRect(100, 100, 800, 600), new IntRect(150, 130, 800, 600), 144, 144, 1, 1, working);
+        var action = FastPathDriver.Step(target, scheduler, t0, force: true);
+        Check("A: a pure move is answered with a position-only write",
+            action == FastPathAction.MoveOnly, true);
+        Check("A: the strip followed by exactly the host delta", target.Window, new IntRect(1050, 1030, 312, 33));
+        Check("A: the move caused no relayout", target.Relayouts, 0L);
+        Check("A: the move asked for no UIA resync", scheduler.SettleResyncs, 0L);
+        Check("A: the move did not raise the UIA read rate",
+            PositionFastPathRules.AccurateIntervalFor(scheduler.Mode, scheduler.ShapeChangeInBurst),
+            PositionFastPathRules.IdleAccurateIntervalMs);
+        Check("A: a degraded ladder never gets the fast cadence either",
+            PositionFastPathRules.AccurateIntervalFor(
+                PositionUpdateMode.Burst,
+                shapeChangeInBurst: true,
+                hasCheapReReadPath: false),
+            PositionFastPathRules.IdleAccurateIntervalMs);
+        Check("A: one WinEvent was recorded", scheduler.WinEvents, 1L);
+
+        // ---------------------------------------------------------------- TEST B: 100 events
+        //
+        // The host has moved 100 px and the window emits a hundred location events for it inside one
+        // frame budget. The strip must end up at the final position immediately — one write, not a
+        // hundred, and never through the intermediate ones. In production this is doubly guaranteed:
+        // the fast path reads the *live* rectangle rather than the event's, and the sampler reports a
+        // geometry change once. Both are modelled here.
+        target = new FakeFastPathTarget(new IntRect(1000, 1000, 312, 33));
+        scheduler = new PositionScheduler();
+        target.SetHost(new IntRect(100, 100, 800, 600), new IntRect(200, 200, 800, 600), 144, 144, 1, 1, working);
+        for (var index = 0; index < 100; index++)
+        {
+            var now = t0.AddTicks(index * 500); // 100 events over 5 ms
+            scheduler.OnHostEvent(now);
+            FastPathDriver.Step(target, scheduler, now, force: false);
+        }
+
+        Check("B: 100 events produced one window call", target.Moves, 1L);
+        Check("B: the strip went straight to the final position",
+            target.Window,
+            new IntRect(1100, 1100, 312, 33));
+        Check("B: 99 events were absorbed into that one write", scheduler.CoalescedEvents, 99L);
+        Check("B: a repeated frame cannot double-apply the move",
+            FastPathDriver.Step(target, scheduler, t0.AddMilliseconds(16), force: true) == FastPathAction.None,
+            true);
+        Check("B: ... so the position is unchanged", target.Window, new IntRect(1100, 1100, 312, 33));
+
+        // B2: the rate limiter. Two geometry changes inside one frame budget produce one write now and
+        // one on the next timer frame, so the strip cannot be driven faster than the frame rate even if
+        // the window reports moves faster than the display.
+        target.SetHost(new IntRect(200, 200, 800, 600), new IntRect(210, 210, 800, 600), 144, 144, 1, 1, working);
+        Check("B2: a second change inside the same frame is held back",
+            FastPathDriver.Step(target, scheduler, t0.AddMilliseconds(2), force: false) == FastPathAction.None,
+            true);
+        Check("B2: ... and counted as rate limited", scheduler.RateLimitedFrames, 1L);
+        Check("B2: the timer frame then applies it",
+            FastPathDriver.Step(target, scheduler, t0.AddMilliseconds(16), force: true) == FastPathAction.MoveOnly,
+            true);
+        Check("B2: two writes for two changes", target.Moves, 2L);
+
+        // ---------------------------------------------------------------- TEST C: resize
+        //
+        // A size change cannot be answered by translation: the composer re-lays-out. The predictor's
+        // defining property is that it keeps each rectangle's distance to the host's bottom-right
+        // corner, which is what makes a resize a first-order guess; the accurate path then corrects it
+        // and the burst raises its read rate so that correction arrives within ~40 ms.
+        target = new FakeFastPathTarget(new IntRect(1000, 1000, 312, 33));
+        scheduler = new PositionScheduler();
+        scheduler.OnHostEvent(t0);
+        target.SetHost(new IntRect(100, 100, 800, 600), new IntRect(100, 100, 900, 700), 144, 144, 1, 1, working);
+        var resize = FastPathDriver.Step(target, scheduler, t0, force: true);
+        Check("C: a resize is handed to the accurate path", resize == FastPathAction.Relayout, true);
+        Check("C: the accurate path was asked exactly once", target.Relayouts, 1L);
+        Check("C: the burst is marked as a shape change", scheduler.ShapeChangeInBurst, true);
+        Check("C: a resize does raise the accurate read rate",
+            PositionFastPathRules.AccurateIntervalFor(scheduler.Mode, scheduler.ShapeChangeInBurst),
+            PositionFastPathRules.AccurateIntervalMs);
+        Check("C: the resize was counted", scheduler.SizeChanges, 1L);
+
+        // The prediction itself: the reference sits 57 px left of the host's right edge, so after a
+        // resize that moved the right edge by 100 px it must still sit 57 px left of it.
+        var referenceBefore = new IntRect(1708, 1406, 24, 24);
+        var predicted = PositionFastPathRules.ReAnchor(
+            referenceBefore,
+            new IntRect(308, 245, 2048, 1224),
+            new IntRect(308, 245, 2148, 1224));
+        Check("C: the prediction keeps the distance to the host's bottom-right corner",
+            predicted.Right - new IntRect(308, 245, 2148, 1224).Right,
+            referenceBefore.Right - new IntRect(308, 245, 2048, 1224).Right);
+        Check("C: ... and predicts the reference 100 px further right", predicted.X, 1808);
+
+        // ---------------------------------------------------------------- TEST D: the tail
+        //
+        // Motion stops. 300 ms later the burst becomes settling and asks for one forced resync; after
+        // the settling window the pipeline releases everything and goes idle.
+        scheduler = new PositionScheduler();
+        scheduler.OnHostEvent(t0);
+        Check("D: motion is a burst", scheduler.Mode == PositionUpdateMode.Burst, true);
+        Check("D: still bursting 299 ms after the last event",
+            scheduler.Advance(t0.AddMilliseconds(299)) == SettleTransition.None, true);
+        Check("D: 300 ms after the last event the burst ends",
+            scheduler.Advance(t0.AddMilliseconds(300)) == SettleTransition.EnterSettling, true);
+        Check("D: ... and that transition is reported exactly once",
+            scheduler.Advance(t0.AddMilliseconds(310)) == SettleTransition.None, true);
+        Check("D: one forced resync was booked", scheduler.SettleResyncs, 1L);
+        Check("D: settling is still not idle",
+            scheduler.Mode == PositionUpdateMode.Settling, true);
+        Check("D: settling ends after its own window",
+            scheduler.Advance(t0.AddMilliseconds(550)) == SettleTransition.Settled, true);
+        Check("D: the pipeline is idle again", scheduler.Mode == PositionUpdateMode.Idle, true);
+
+        // ---------------------------------------------------------------- TEST E: idle is idle
+        //
+        // A second of idle frames at 60 Hz must produce no window call. Two variants: a host that is not
+        // moving at all, and a stale sample that claims it is — the second is the one that proves the
+        // fast path cannot fire outside a burst, which is what keeps the idle cost where it was.
+        target = new FakeFastPathTarget(new IntRect(1000, 1000, 312, 33));
+        scheduler = new PositionScheduler();
+        var stationary = new IntRect(100, 100, 800, 600);
+        for (var frame = 0; frame < 60; frame++)
+        {
+            target.SetHost(stationary, stationary, 144, 144, 1, 1, working);
+            FastPathDriver.Step(target, scheduler, t0.AddMilliseconds(frame * 16), force: false);
+        }
+
+        Check("E: an idle second makes no position write", target.Moves, 0L);
+        Check("E: ... and no relayout", target.Relayouts, 0L);
+        Check("E: the idle mode refuses to write", scheduler.ShouldWriteNow(t0, geometryChange: false), false);
+
+        target = new FakeFastPathTarget(new IntRect(1000, 1000, 312, 33));
+        scheduler = new PositionScheduler();
+        for (var frame = 0; frame < 60; frame++)
+        {
+            target.SetHost(stationary, new IntRect(100 + frame, 100 + frame, 800, 600), 144, 144, 1, 1, working);
+            FastPathDriver.Step(target, scheduler, t0.AddMilliseconds(frame * 16), force: false);
+        }
+
+        Check("E: geometry alone cannot wake the pipeline, an event must", target.Moves, 0L);
+        Check("E: ... and the frames are reported as held back", scheduler.RateLimitedFrames, 59L);
+
+        // ---------------------------------------------------------------- TEST F: DPI and monitor
+        //
+        // Dragging between displays can change the DPI with the size unchanged, and the monitor with
+        // neither. Both invalidate the DIP-to-pixel relationship, so both must force a re-resolve
+        // rather than reuse the old ratio.
+        target = new FakeFastPathTarget(new IntRect(1000, 1000, 312, 33));
+        scheduler = new PositionScheduler();
+        scheduler.OnHostEvent(t0);
+        target.SetHost(new IntRect(100, 100, 800, 600), new IntRect(100, 100, 800, 600), 144, 192, 1, 1, working);
+        Check("F: a DPI change forces a relayout",
+            FastPathDriver.Step(target, scheduler, t0, force: true) == FastPathAction.Relayout, true);
+        Check("F: the DPI change was counted", scheduler.DpiChanges, 1L);
+        target.SetHost(new IntRect(100, 100, 800, 600), new IntRect(100, 100, 800, 600), 192, 192, 1, 2, working);
+        Check("F: a monitor change forces a relayout",
+            FastPathDriver.Step(target, scheduler, t0.AddMilliseconds(20), force: true) == FastPathAction.Relayout, true);
+        Check("F: the monitor change was counted", scheduler.MonitorChanges, 1L);
+
+        // A same-size, same-DPI, same-monitor sample must not be mistaken for a shape change.
+        target.SetHost(new IntRect(100, 100, 800, 600), new IntRect(140, 130, 800, 600), 192, 192, 2, 2, working);
+        Check("F: a move with identical shape is still just a move",
+            FastPathDriver.Step(target, scheduler, t0.AddMilliseconds(40), force: true) == FastPathAction.MoveOnly,
+            true);
+
+        // ---------------------------------------------------------------- the guards
+        //
+        // A minimised or hidden host reports Windows' (-32000,-32000) sentinel: the strip hides rather
+        // than docking to nonsense. And a move that would push the strip out of the monitor's working
+        // area is not a translation either — it needs the clamp, which lives in the layout calculator.
+        target = new FakeFastPathTarget(new IntRect(1000, 1000, 312, 33));
+        scheduler = new PositionScheduler();
+        scheduler.OnHostEvent(t0);
+        Check("guard: the (-32000,-32000) sentinel is not a usable host rect",
+            PositionFastPathRules.IsUsableHostRect(new IntRect(-32000, -32000, 2048, 1224)), false);
+        Check("guard: a real rect is usable",
+            PositionFastPathRules.IsUsableHostRect(new IntRect(308, 245, 2048, 1224)), true);
+        target.SetHost(
+            new IntRect(100, 100, 800, 600),
+            new IntRect(-31000, -31000, 800, 600),
+            144,
+            144,
+            1,
+            1,
+            working);
+        Check("guard: an unusable host hides the strip",
+            FastPathDriver.Step(target, scheduler, t0, force: true) == FastPathAction.HideForUnusableHost,
+            true);
+        Check("guard: ... by hiding, not by moving", target.Hides, 1L);
+
+        target = new FakeFastPathTarget(new IntRect(3700, 1000, 312, 33));
+        scheduler = new PositionScheduler();
+        scheduler.OnHostEvent(t0);
+        target.SetHost(
+            new IntRect(3300, 100, 600, 600),
+            new IntRect(3500, 100, 600, 600),
+            144,
+            144,
+            1,
+            1,
+            working);
+        Check("guard: a move that would leave the working area is re-resolved instead",
+            FastPathDriver.Step(target, scheduler, t0, force: true) == FastPathAction.Relayout, true);
+
+        // A host that is only *partly* on screen is the same class of problem even when the strip itself
+        // would still fit: Codex's composer stops translating rigidly with the window rectangle (measured
+        // on the real client: the toolbar row moved 39 px for a 63 px window move) and the layout's
+        // ClampToVisible has to run. So it must not be answered by a translation either — this is the one
+        // case in this whole change where a shortcut would have made the tracking visibly worse.
+        var partlyVisible = new IntRect(0, 0, 2560, 1400);
+        target = new FakeFastPathTarget(new IntRect(1000, 1000, 312, 33));
+        scheduler = new PositionScheduler();
+        scheduler.OnHostEvent(t0);
+        target.SetHost(
+            new IntRect(300, 900, 2100, 1300),
+            new IntRect(300, 960, 2100, 1300),
+            144,
+            144,
+            1,
+            1,
+            partlyVisible);
+        Check("guard: a partly off-screen host is re-resolved, not translated",
+            FastPathDriver.Step(target, scheduler, t0, force: true) == FastPathAction.Relayout, true);
+        Check("guard: ... and the burst is marked so the accurate path speeds up",
+            scheduler.ShapeChangeInBurst, true);
+        Check("guard: ... and it is counted as an off-screen relayout", scheduler.OffscreenChanges, 1L);
+        Check("guard: a fully visible host of the same size is still a translation",
+            PositionFastPathRules.Plan(
+                new HostGeometrySample(
+                    new IntRect(300, 100, 2100, 900),
+                    new IntRect(300, 160, 2100, 900),
+                    144,
+                    144,
+                    1,
+                    1,
+                    partlyVisible,
+                    true),
+                new IntRect(1000, 1000, 312, 33)).Action == FastPathAction.MoveOnly,
+            true);
+    }
+
+    /// <summary>
+    /// A stand-in for the overlay: same interface, synthetic geometry, no window. Counting the calls it
+    /// receives is how the tests observe what the pipeline decided.
+    /// </summary>
+    private sealed class FakeFastPathTarget : IFastPathTarget
+    {
+        private HostGeometrySample _sample;
+        private bool _hasSample;
+
+        public FakeFastPathTarget(IntRect windowBounds)
+        {
+            Window = windowBounds;
+        }
+
+        public IntRect Window { get; private set; }
+
+        public long Moves { get; private set; }
+
+        public long Relayouts { get; private set; }
+
+        public long Hides { get; private set; }
+
+        public bool CanTrack => true;
+
+        IntRect IFastPathTarget.CurrentWindowBounds => Window;
+
+        public void SetHost(
+            IntRect previous,
+            IntRect current,
+            uint previousDpi,
+            uint currentDpi,
+            long previousMonitor,
+            long currentMonitor,
+            IntRect workingArea)
+        {
+            _sample = new HostGeometrySample(
+                previous,
+                current,
+                previousDpi,
+                currentDpi,
+                previousMonitor,
+                currentMonitor,
+                workingArea,
+                PositionFastPathRules.IsUsableHostRect(current));
+            _hasSample = true;
+        }
+
+        /// <summary>
+        /// Models <see cref="HostWindowSampler"/>: a geometry change is reported until it is committed,
+        /// so a frame held back by the rate limiter sees the same change again — with a delta covering
+        /// everything since the last write.
+        /// </summary>
+        bool IFastPathTarget.TrySampleHost(out HostGeometrySample sample)
+        {
+            sample = _sample;
+            return _hasSample;
+        }
+
+        void IFastPathTarget.CommitHostGeometry() => _hasSample = false;
+
+        void IFastPathTarget.MoveWindowTo(IntRect bounds)
+        {
+            Moves++;
+            Window = bounds;
+        }
+
+        void IFastPathTarget.RelayoutFromAccuratePath() => Relayouts++;
+
+        void IFastPathTarget.HideForUnusableHost() => Hides++;
+    }
+
+    private static void Section(string title)
+    {        Console.Out.WriteLine();
         Console.Out.WriteLine("-- " + title);
+    }
+
+    private static void Check(string name, IntRect actual, IntRect expected)
+    {
+        _checks++;
+        if (actual == expected)
+        {
+            Console.Out.WriteLine(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  OK    {name} ({actual.X},{actual.Y} {actual.Width}x{actual.Height})"));
+            return;
+        }
+
+        _failures++;
+        Console.Out.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"  FAIL  {name}: got {actual.X},{actual.Y} {actual.Width}x{actual.Height}, "
+                + $"want {expected.X},{expected.Y} {expected.Width}x{expected.Height}"));
     }
 
     private static void Check(string name, long actual, long expected)

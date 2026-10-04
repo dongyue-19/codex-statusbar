@@ -110,8 +110,17 @@ internal sealed class ComposerDockTracker : IDisposable
     /// <summary>Design-system class fragment on the Context indicator, a text-independent signal.</summary>
     private const string ContextClassHint = "codex-description";
 
-    /// <summary>How often the fast path (re-reading the held element) runs.</summary>
+    /// <summary>
+    /// How often the fast path (re-reading the held element) runs when nothing is moving. This is the
+    /// accurate path's own cadence and is unchanged from the original design.
+    /// </summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>The fastest the fast path may be asked to run, in milliseconds.</summary>
+    private const int MinimumPollIntervalMs = 16;
+
+    /// <summary>The slowest it may be asked to run. A request can never make this thread lazier than idle.</summary>
+    private const int MaximumPollIntervalMs = (int)250;
 
     /// <summary>A full tree walk at least this often, as a safety net against silent layout drift.</summary>
     private static readonly TimeSpan ResyncInterval = TimeSpan.FromSeconds(20);
@@ -125,6 +134,51 @@ internal sealed class ComposerDockTracker : IDisposable
     private long _walkCount;
     private long _fastReadCount;
     private long _lastWalkMilliseconds;
+    private long _revision;
+    private long _resyncRequestCount;
+    private long _lastReadTicks;
+
+    /// <summary>
+    /// Requested interval for the cheap re-read, in milliseconds. The position fast path raises this
+    /// during a drag or a resize so the calibration keeps up with the motion; it is lowered again when
+    /// the burst ends, so an idle machine polls exactly as often as it always did.
+    ///
+    /// <para>Note what this does <b>not</b> change: a full tree walk still happens only when the
+    /// reference rectangle moves, when the reference is lost, or on the 20 s safety resync. The burst
+    /// raises the rate of one cross-process rectangle read, never the rate of a traversal.</para>
+    /// </summary>
+    private volatile int _pollIntervalMs = (int)PollInterval.TotalMilliseconds;
+
+    /// <summary>
+    /// Whether the cheap re-read path is currently usable, i.e. the loop is holding a Context element it
+    /// can re-read with one cross-process call.
+    ///
+    /// <para>This is deliberately a <b>live</b> flag rather than a reading of the last published snapshot:
+    /// the snapshot can still say <c>uia-context</c> for a frame or two after the element has gone, and a
+    /// caller that used it to decide "the accurate path is cheap right now" would speed up a loop that is
+    /// about to fall back to walking the whole tree on every poll. That is not hypothetical — it turned
+    /// one drag into 8 traversals per burst before this flag existed.</para>
+    /// </summary>
+    private volatile bool _hasCheapPath;
+
+    /// <summary>
+    /// Set by <see cref="RequestResync"/>, consumed by the loop. A plain int driven through
+    /// <c>Interlocked</c>: the interlocked exchange is the barrier, so marking it volatile as well would
+    /// only make the <c>ref</c> argument stop being volatile (and warn about it).
+    /// </summary>
+    private int _resyncRequested;
+
+    /// <summary>
+    /// Whether a moving reference rectangle should trigger a full tree walk.
+    ///
+    /// <para>True is the original behaviour and stays true whenever the host is at rest: a reference that
+    /// moved means the composer re-laid-out, and only a traversal can re-read its siblings. The position
+    /// fast path turns it off while a burst is in flight, because during motion the reference moves on
+    /// every read and each one would become a traversal — 25 per second during a resize. The motion is
+    /// answered geometrically instead, and one forced <see cref="RequestResync"/> when it ends confirms
+    /// the settled layout.</para>
+    /// </summary>
+    public bool WalkOnReferenceMove { get; set; } = true;
 
     public ComposerDockTracker(Func<IntPtr> windowProvider)
     {
@@ -144,6 +198,51 @@ internal sealed class ComposerDockTracker : IDisposable
     public long FastReadCount => Interlocked.Read(ref _fastReadCount);
 
     public long LastWalkMilliseconds => Interlocked.Read(ref _lastWalkMilliseconds);
+
+    /// <summary>Increments on every published snapshot change, so the owner can tell stale from fresh.</summary>
+    public long Revision => Interlocked.Read(ref _revision);
+
+    public long ResyncRequestCount => Interlocked.Read(ref _resyncRequestCount);
+
+    /// <summary>True while the accurate path can re-read its held element instead of walking the tree.</summary>
+    public bool HasCheapPath => _hasCheapPath;
+
+    /// <summary>
+    /// Milliseconds since the accurate path last took a measurement — a cheap rectangle re-read or a
+    /// full walk. This is the age of the numbers the placement is using, which is what the position
+    /// diagnostics need; the age of the last *change* would be misleading, because a stable window
+    /// stops changing while it is still being measured.
+    /// </summary>
+    public double MillisecondsSinceLastRead
+    {
+        get
+        {
+            var ticks = Interlocked.Read(ref _lastReadTicks);
+            return ticks == 0 ? -1 : Environment.TickCount64 - ticks;
+        }
+    }
+
+    /// <summary>
+    /// Accurate-path cadence, in milliseconds. Clamped: a caller may ask for a faster re-read, never
+    /// for a slower one than the idle default, and never for a busy loop.
+    /// </summary>
+    public int AccurateRefreshIntervalMs
+    {
+        get => _pollIntervalMs;
+        set => _pollIntervalMs = Math.Clamp(value, MinimumPollIntervalMs, MaximumPollIntervalMs);
+    }
+
+    /// <summary>
+    /// Asks for one full discovery pass on the next iteration. Used at the end of a move/resize burst:
+    /// the cheap re-read keeps the reference rectangle honest during the motion, but only a traversal
+    /// can confirm that the composer's *siblings* (the left cluster, the row) settled back where the
+    /// layout thinks they are.
+    /// </summary>
+    public void RequestResync()
+    {
+        Interlocked.Increment(ref _resyncRequestCount);
+        Interlocked.Exchange(ref _resyncRequested, 1);
+    }
 
     public void Start()
     {
@@ -213,6 +312,7 @@ internal sealed class ComposerDockTracker : IDisposable
                     composer = null;
                     model = null;
                     walksRemaining = 2;
+                    _hasCheapPath = false;
                     Sleep(token);
                     continue;
                 }
@@ -225,6 +325,7 @@ internal sealed class ComposerDockTracker : IDisposable
                     composer = null;
                     model = null;
                     walksRemaining = 2;
+                    _hasCheapPath = false;
                     Sleep(token);
                     continue;
                 }
@@ -247,6 +348,7 @@ internal sealed class ComposerDockTracker : IDisposable
                     if (TryReadRect(reference, out fastRect))
                     {
                         Interlocked.Increment(ref _fastReadCount);
+                        Interlocked.Exchange(ref _lastReadTicks, Environment.TickCount64);
                     }
                     else
                     {
@@ -255,7 +357,7 @@ internal sealed class ComposerDockTracker : IDisposable
                     }
                 }
 
-                if (!fastRect.IsEmpty && fastRect != lastReferenceRect)
+                if (!fastRect.IsEmpty && fastRect != lastReferenceRect && WalkOnReferenceMove)
                 {
                     // The layout moved. Two walks, not one: the Context indicator's own rectangle is
                     // updated before its siblings', so a single walk taken as soon as the reference
@@ -263,6 +365,11 @@ internal sealed class ComposerDockTracker : IDisposable
                     // the 1100 px sidebar breakpoint, where one walk left the left-cluster boundary at
                     // its pre-breakpoint value (607 px instead of 880) for as long as the geometry
                     // stayed put — the resync interval was the only thing that eventually fixed it.
+                    walksRemaining = 2;
+                }
+
+                if (Interlocked.Exchange(ref _resyncRequested, 0) != 0)
+                {
                     walksRemaining = 2;
                 }
 
@@ -277,6 +384,7 @@ internal sealed class ComposerDockTracker : IDisposable
                     var snapshot = Walk(hwnd, ref composer, ref reference, ref model);
                     Interlocked.Increment(ref _walkCount);
                     Interlocked.Exchange(ref _lastWalkMilliseconds, Environment.TickCount64 - walkStarted);
+                    Interlocked.Exchange(ref _lastReadTicks, Environment.TickCount64);
                     lastWalkAt = DateTime.UtcNow;
                     walksRemaining--;
                     lastReferenceRect = snapshot.ReferenceRect;
@@ -293,9 +401,14 @@ internal sealed class ComposerDockTracker : IDisposable
                         Failure = null
                     });
                 }
+
+                // The live answer to "can the next iteration be a cheap re-read". Recomputed every pass
+                // from the element the loop is actually holding.
+                _hasCheapPath = reference is not null;
             }
             catch (ElementNotAvailableException)
             {
+                _hasCheapPath = false;
                 reference = null;
                 composer = null;
                 model = null;
@@ -303,6 +416,7 @@ internal sealed class ComposerDockTracker : IDisposable
             }
             catch (InvalidOperationException)
             {
+                _hasCheapPath = false;
                 reference = null;
                 composer = null;
                 model = null;
@@ -311,6 +425,7 @@ internal sealed class ComposerDockTracker : IDisposable
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 Publish(ComposerDockSnapshot.Empty with { Failure = exception.GetType().Name });
+                _hasCheapPath = false;
                 reference = null;
                 composer = null;
                 model = null;
@@ -322,15 +437,16 @@ internal sealed class ComposerDockTracker : IDisposable
         }
     }
 
-    private static void Sleep(CancellationToken token)
+    private void Sleep(CancellationToken token)
     {
+        var interval = TimeSpan.FromMilliseconds(_pollIntervalMs);
         try
         {
-            token.WaitHandle.WaitOne(PollInterval);
+            token.WaitHandle.WaitOne(interval);
         }
         catch (ObjectDisposedException)
         {
-            Thread.Sleep(PollInterval);
+            Thread.Sleep(interval);
         }
     }
 
@@ -342,6 +458,7 @@ internal sealed class ComposerDockTracker : IDisposable
         }
 
         _latest = snapshot;
+        Interlocked.Increment(ref _revision);
     }
 
     // ------------------------------------------------------------------ the walk

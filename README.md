@@ -1,6 +1,6 @@
 # CodexStatusbar
 
-<https://github.com/dongyue-19/codex-statusbar> · MIT licensed · **v1.0.0-rc2** (release candidate,
+<https://github.com/dongyue-19/codex-statusbar> · MIT licensed · **v1.0.0-rc3** (release candidate,
 feature-frozen)
 
 **English** · [简体中文](README.zh-CN.md)
@@ -681,7 +681,7 @@ CodexStatusbar.exe --hotkey-probe out.json      # Ctrl+Alt+Shift+P (fails by des
 ## 6. Verifying the numbers yourself
 
 ```
-CodexStatusbar.exe --self-test fixtures            # 246 checks over the production code (218 without fixtures)
+CodexStatusbar.exe --self-test fixtures            # 296 checks over the production code (268 without fixtures)
 python tools\verify_metrics.py          # real conversations, raw vs derived
 python tools\make_fixtures.py           # deterministic fixtures + assertions
 python tools\verify_tail_recovery.py    # bounded-tail recovery == full parse
@@ -713,7 +713,7 @@ maximises, restores and moves the Codex window and checks the strip's *real* rec
   a 5000 ms `CommandExecution` not changing the result; both carriers; five double-counting
   scenarios; the nine anchors and the 3×3 region rule; 25 resize cycles leaving the saved offset
   untouched; the display clamp never being written back; and the `CodexThemeSource` TOML rules
-  including against the real `config.toml` on this machine. **246 checks with the fixtures, 218
+  including against the real `config.toml` on this machine. **296 checks with the fixtures, 268
   without them, currently all passing.**
 * **`make_fixtures.py`** writes `fixtures\fixture-modern.jsonl` and `fixtures\fixture-legacy.jsonl`
   and asserts exact expected values. The TPS fixture is built so the answer is exact: Reasoning
@@ -1015,3 +1015,37 @@ before the mutex and are unaffected.
 both sides: the overlay's own `[lifecycle]` block *and* an independent Win32 window enumeration, so
 "attached" has to mean the strip is really on screen. It reports how many checks passed and writes
 `lifecycle-verification.json`.
+---
+
+## Position fast path (rc3)
+
+The strip follows the Codex window through two channels instead of one timer.
+
+* **`WinEventHostMonitor`** — `SetWinEventHook` scoped to the Codex process (`EVENT_OBJECT_LOCATIONCHANGE`,
+  `EVENT_SYSTEM_MOVESIZESTART/END`, `EVENT_SYSTEM_FOREGROUND`, `EVENT_SYSTEM_MINIMIZESTART/END`). Installed
+  out-of-context, so callbacks arrive on the overlay's own UI thread: no marshalling, no queue, no
+  backlog of stale positions. The callback does nothing but record that the host moved.
+* **`HostWindowSampler`** — one `GetWindowRect` per sample, plus DWM's frame bounds, the DPI and the
+  monitor's working area only when the shape actually changed. A geometry change is reported until it is
+  *committed*, so a frame held back by the rate limiter leaves the motion pending instead of dropping it.
+* **`FastPathDriver` + `PositionScheduler`** — pure, deterministic decision logic (idle → burst →
+  settling) that `--self-test` drives with synthetic rectangles and an explicit clock.
+* **`TokenStripForm.ApplyLayoutPositionOnly`** — a move that keeps the strip's shape is a `SetWindowPos`
+  with `SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING | SWP_NOREDRAW`.
+  No re-measure, no re-render, no `UpdateLayeredWindow`. `OnPaint` is gated on a pixel-version counter so
+  a move cannot trigger a full repaint either.
+
+Instrumentation: with `--debug`, a `[position-performance]` block is summarised once a second (every ten
+seconds at idle, and only if a counter moved) with the mode, the event/write/coalescing counters, the
+host and overlay rectangles, the position error in pixels and the cadences in force. Nothing is logged
+per frame. `--position-fast-debug` (or the tray's **Position diagnostics**) turns the same block into a
+one-second summary; both require `--debug`, because the block is written to the debug log.
+
+```
+pwsh -File tools\verify_position_fastpath.ps1
+```
+
+moves the real Codex window a short distance and back, asserts against both the overlay's own counters
+and the strip's real window rectangle, measures the CPU cost in the production configuration, and
+restores the window geometry in a `finally`. It takes no screenshots: whether the tracking *looks* smooth
+is a human judgement, and the script says so.

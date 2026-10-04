@@ -1,4 +1,4 @@
-# CodexStatusbar — 1.0.0-rc2
+# CodexStatusbar — 1.0.0-rc3
 
 Release candidate. **Feature-frozen**: no further functional change to the metrics, the token/cache
 arithmetic, IPC conversation binding, the UIA `ComposerContextLeft` positioning, the responsive
@@ -12,6 +12,51 @@ Codex's own composer toolbar using public Win32 APIs.
 ```
 ⚡ 158 tok/s · 2.6M tok · Cache 90%
 ```
+
+---
+
+## What is new in rc3 — the strip now moves *with* Codex
+
+Before this build the strip was repositioned only on the overlay's UI tick, which in the active state
+is **350 ms**. Dragging, resizing or maximising Codex therefore moved the window first and the strip up
+to a third of a second later.
+
+rc3 splits positioning into two channels:
+
+| channel | what it is | when it runs |
+|---|---|---|
+| **Fast path** | `SetWinEventHook` on the Codex window + `GetWindowRect` + position-only `SetWindowPos` | every burst frame (8–16 ms), *no* UI Automation |
+| **Accurate path** | the existing composer/toolbar UI Automation measurement | its original cadence, raised only while a resize needs it |
+
+A window that only *moves* is answered by translating the strip by the same delta: the composer
+translates rigidly with its window, so this needs no measurement at all and no repaint — the layered
+surface is moved, not re-rendered. A window that *resizes* is predicted from the last accurate
+measurement, re-anchored to the window's bottom-right corner, and corrected by the accurate path.
+
+```
+IDLE      no events, no timer, nothing changes          (unchanged idle cost)
+BURST     host is moving: cheap geometry at 8–16 ms, UIA only if the shape changed
+SETTLING  motion stopped: one forced accurate resync, then back to idle after ~250 ms
+```
+
+Measured on the real Codex window (this machine, 150% scaling):
+
+| | rc2 | rc3 |
+|---|---|---|
+| pure move of the Codex window | followed on the next 350 ms tick | **same frame**: 8 WinEvents → 8 position-only writes, exact delta, **0 relayouts, 0 UIA traversals** |
+| resize (+120 px) | next tick(s) | 24 events → 6 re-resolutions, strip moved exactly 120 px |
+| reported position error | — | **0 / 0 px** after every move and resize |
+| idle | ~0.8% of one core | ~0.8% of one core (same method, back to back) |
+| continuous ~80 moves/s | pre-existing metric cost dominates | **+0 → ~4%** of one core for the whole process, back to 0 within seconds |
+
+Two rules that keep the fast path honest, both pinned by `--self-test`:
+
+* a **degraded accessibility ladder never gets the fast cadence** — when the tracker has no element to
+  re-read cheaply, every poll is a full tree walk, and speeding that up would have turned one drag into
+  ~25 walks per second;
+* a **host that is not fully on screen is never answered by a translation** — Codex's own composer stops
+  translating rigidly there (measured: the toolbar row moved 39 px for a 63 px window move) and the
+  layout's clamp has to run.
 
 ---
 
@@ -225,7 +270,7 @@ Expected: `checks: 218   failures: 0` / `RESULT: PASS`, exit code 0 for the bare
 repository's `fixtures\` directory. A fixtures path that does not exist is a failure and exits 1.
 
 ```
-Version:      1.0.0-rc2
+Version:      1.0.0-rc3
 EXE:          CodexStatusbar.exe
 SHA-256:      see SHA256.txt next to this file
 ```
